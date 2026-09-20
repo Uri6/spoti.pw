@@ -12,6 +12,7 @@
 //   ElementContentView<TabBarItemElement>, each with an SPTEncoreIconView and an SPTEncoreLabel.
 #import "Core/SGCore.h"
 #import "Navbar.h"
+#import "DynamicBarCoordinator.h"
 #import "Redesigned/Kit/SGRTokens.h"
 #import "Settings/SGPage.h"
 #import "Headers/SPTEncoreIconView.h"
@@ -416,6 +417,12 @@ static void syncBar(UIView *stockBar) {
     else if (stockBar.subviews.lastObject != host) [stockBar bringSubviewToFront:host];
     logBarOnce(bar);
     makeRoom(containerOf(stockBar));
+    SGRDynamicBarUpdateTabs(containerOf(stockBar), stockBar, bar, sources, ^(UIView *source) {
+        forwardTap(source);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (sg_stockBar) syncBar(sg_stockBar);
+        });
+    });
 }
 
 #pragma mark - hooks

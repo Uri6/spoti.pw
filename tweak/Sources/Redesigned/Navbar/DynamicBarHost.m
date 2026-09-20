@@ -13,9 +13,21 @@
 @property(nonatomic, strong) UITabBarController *tabController;
 @property(nonatomic, strong) SGRAccessorySlot *slot;
 @property(nonatomic, strong) SGRDynamicBarScrollDriver *scrollDriver;
+@property(nonatomic) BOOL holding;
 @end
 
 @implementation SGRAccessorySlot
+- (instancetype)init {
+    if ((self = [super init])) {
+        if (@available(iOS 26.0, *)) {
+            [self registerForTraitChanges:@[UITraitTabAccessoryEnvironment.class]
+                             withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
+                [(UIView *)environment setNeedsLayout];
+            }];
+        }
+    }
+    return self;
+}
 - (CGSize)intrinsicContentSize { return CGSizeMake(UIViewNoIntrinsicMetric, 48); }
 - (void)layoutSubviews {
     [super layoutSubviews];
@@ -53,6 +65,7 @@
     if (@available(iOS 26.0, *)) {
         self.tabController = [UITabBarController new];
         self.tabController.delegate = self;
+        [self.tabController.tabBar addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(held:)]];
         self.scrollDriver = [SGRDynamicBarScrollDriver new];
         self.scrollDriver.tabController = self.tabController;
         self.scrollDriver.scrollView = self.observedScrollView;
@@ -88,25 +101,54 @@
     [items enumerateObjectsUsingBlock:^(UITabBarItem *item, NSUInteger i, BOOL *stop) {
         UIViewController *proxy = self.tabController.viewControllers[i];
         UITabBarItem *mirror = proxy.tabBarItem;
-        mirror.title = item.title;
-        mirror.image = item.image;
-        mirror.selectedImage = item.selectedImage;
+        if (![mirror.title isEqualToString:item.title]) mirror.title = item.title;
+        if (mirror.image != item.image) mirror.image = item.image;
+        if (mirror.selectedImage != item.selectedImage) mirror.selectedImage = item.selectedImage;
         mirror.accessibilityLabel = item.accessibilityLabel ?: item.title;
         mirror.tag = i;
     }];
-    self.tabController.selectedIndex = index;
+    if (self.tabController.selectedIndex != index) self.tabController.selectedIndex = index;
 }
 - (BOOL)tabBarController:(UITabBarController *)controller shouldSelectViewController:(UIViewController *)viewController {
+    if (self.holding) return NO;
     NSUInteger index = [controller.viewControllers indexOfObject:viewController];
     if (index != NSNotFound) [self.delegate dynamicBarHost:self didSelectIndex:index];
     // Selection follows the actual application after it accepts the original action.
     return NO;
 }
 - (void)setObservedScrollView:(UIScrollView *)scrollView {
+    if (_observedScrollView == scrollView) return;
     _observedScrollView = scrollView;
     self.scrollDriver.scrollView = scrollView;
     for (UIViewController *proxy in self.tabController.viewControllers) {
         [proxy setContentScrollView:scrollView forEdge:NSDirectionalRectEdgeAll];
+    }
+}
+- (void)held:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.holding = YES;
+        UITabBar *bar = self.tabController.tabBar;
+        CGPoint point = [gesture locationInView:bar];
+        NSUInteger index = NSNotFound;
+        CGFloat distance = CGFLOAT_MAX;
+        NSMutableArray<UIView *> *pending = [bar.subviews mutableCopy];
+        while (pending.count) {
+            UIView *view = pending.lastObject;
+            [pending removeLastObject];
+            [pending addObjectsFromArray:view.subviews];
+            if (view.hidden || view.alpha < 0.01 || CGRectIsEmpty(view.bounds)) continue;
+            CGFloat dx = fabs([view convertPoint:CGPointMake(CGRectGetMidX(view.bounds), 0) toView:bar].x - point.x);
+            for (NSUInteger i = 0; i < bar.items.count && dx < distance; i++) {
+                UITabBarItem *item = bar.items[i];
+                BOOL match = [view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:item.title];
+                if ([view isKindOfClass:UIImageView.class]) match |= ((UIImageView *)view).image == item.image || ((UIImageView *)view).image == item.selectedImage;
+                if (match) { index = i; distance = dx; }
+            }
+        }
+        if (index != NSNotFound && [self.delegate respondsToSelector:@selector(dynamicBarHost:didHoldIndex:)]) [self.delegate dynamicBarHost:self didHoldIndex:index];
+    } else if (gesture.state != UIGestureRecognizerStateChanged) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ weakSelf.holding = NO; });
     }
 }
 - (void)setPermitsMinimization:(BOOL)permitsMinimization {

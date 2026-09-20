@@ -18,6 +18,7 @@
 // (npbSnapshotView, tabBarSnapshotView); which of the two 9.1.78 runs is not known, so both are hooked
 // and the log says which fired.
 #import "Core/SGCore.h"
+#import "Redesigned/Navbar/DynamicBarCoordinator.h"
 
 @interface SPTBarOverlayPresentationTransition : NSObject
 - (UIView *)bottomBarView;
@@ -87,6 +88,16 @@ static void backWithGlass(UIView *snapshot, UIView *source, NSString *what) {
 }
 
 %hook SPTBarOverlayPresentationTransition
+// Selector and v24@0:8@16 encoding verified in 9.1.78 at 0x109814bbc. Restore BEFORE
+// Spotify captures snapshots, so PlayerMorph and Spotify agree on one origin geometry.
+- (void)setupTransitioningContext:(id)context {
+    SGRDynamicBarBeginTransition([self bottomBarView], self);
+    %orig;
+}
+- (void)destroyTransitioningContext {
+    %orig;
+    SGRDynamicBarEndTransition(self);
+}
 - (void)setBarSnapshotView:(UIView *)view {
     backWithGlass(view, [self bottomBarView], @"bar");
     %orig;
@@ -104,6 +115,7 @@ static id ivarNamed(id object, const char *name) {
 
 %hook _TtC19MainUI_TabBarUIImpl24CompactOverlayTransition
 - (void)animateTransition:(id)context {
+    SGRDynamicBarBeginTransition(ivarNamed(self, "npbView"), self);
     %orig;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ SGLog(@"player transition: CompactOverlayTransition animates, snapshots %@ / %@",
@@ -113,11 +125,25 @@ static id ivarNamed(id object, const char *name) {
 }
 %end
 
+// UIKit lifecycle selectors on the same controller already observed by Shared/Player/PlayerEvents.
+// A cancelled interactive dismissal does not finish disappearing, so it cannot unfreeze the bars.
+%hook _TtC21NowPlaying_ScrollImpl27NPVBackgroundViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    SGRDynamicBarPlayerVisibility((UIViewController *)self, YES);
+}
+- (void)viewDidDisappear:(BOOL)animated {
+    %orig;
+    SGRDynamicBarPlayerVisibility((UIViewController *)self, NO);
+}
+%end
+
 %ctor {
     if (!SGRedesignedUI()) return;
     %init;
     SGRequireClasses(@[
         @"SPTBarOverlayPresentationTransition",
         @"_TtC19MainUI_TabBarUIImpl24CompactOverlayTransition",
+        @"_TtC21NowPlaying_ScrollImpl27NPVBackgroundViewController",
     ]);
 }

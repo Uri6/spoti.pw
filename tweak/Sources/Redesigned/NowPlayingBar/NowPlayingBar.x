@@ -14,6 +14,7 @@
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRRepaint.h"
 #import "NowPlayingBar.h"
+#import "Redesigned/Navbar/DynamicBarCoordinator.h"
 
 static const CGFloat kCardRadius = 24;
 static char kGlassKey;
@@ -83,7 +84,9 @@ static void restyleCardContent(UIView *card) {
     SGForEachView(card, ^(UIView *v) {
         CGRect f = v.frame;
         if (f.size.height > 3 || f.size.width < 200 || v.superview.bounds.size.height < 40) return;
-        CGRect target = CGRectMake(52, card.bounds.size.height - 6, 226, 2);
+        CGFloat width = MIN(226, MAX(0, card.bounds.size.width - 104));
+        CGFloat x = card.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft ? card.bounds.size.width - 52 - width : 52;
+        CGRect target = CGRectMake(x, card.bounds.size.height - 6, width, 2);
         if (CGRectEqualToRect(f, target)) return;
         v.frame = target;
         [v setNeedsLayout];
@@ -92,6 +95,7 @@ static void restyleCardContent(UIView *card) {
 }
 
 static void styleNowPlayingBar(UIViewController *container) {
+    if (SGRDynamicBarIsLayingOut(container)) return;
     UIViewController *barVC = container.childViewControllers.firstObject;
     UIView *bar = barVC.viewIfLoaded ?: container.view;
     sgr_nowPlayingRoot = bar;
@@ -120,6 +124,7 @@ static void styleNowPlayingBar(UIViewController *container) {
     sg_cardGlass = glass;
     glass.frame = frame;
     SGShapeGlass(glass, radius, NO);
+    SGRDynamicBarUpdatePlayer(container, card, glass);
 
     static dispatch_once_t once;
     dispatch_once(&once, ^{

@@ -1,11 +1,14 @@
 // Public-API feasibility probe, not a mock of Spotify's player or proof of Spotify integration.
 #import <UIKit/UIKit.h>
 #import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarScrollDriver.h"
+#import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarHost.h"
+#import "../../../tweak/Sources/Redesigned/NowPlayingBar/LiveBarLayout.h"
 
 @interface ProbeAccessory : UIView
 @property(nonatomic, strong) UILabel *status;
 @property(nonatomic, strong) UIButton *play;
 @property(nonatomic) NSUInteger presses;
+@property(nonatomic, copy) NSString *externalEnvironment;
 @end
 @implementation ProbeAccessory
 - (instancetype)init {
@@ -32,7 +35,7 @@
 - (void)layoutSubviews {
     [super layoutSubviews];
     BOOL inlineMode = self.traitCollection.tabAccessoryEnvironment == UITabAccessoryEnvironmentInline;
-    self.status.accessibilityValue = inlineMode ? @"inline" : @"regular";
+    self.status.accessibilityValue = self.externalEnvironment ?: (inlineMode ? @"inline" : @"regular");
     self.status.frame = CGRectMake(12, 0, MAX(0, self.bounds.size.width - 80), self.bounds.size.height);
     self.play.frame = CGRectMake(self.bounds.size.width - 64, 0, 56, self.bounds.size.height);
     NSLog(@"PROBE accessory %@ frame %@", self.status.accessibilityValue, NSStringFromCGRect(self.frame));
@@ -71,16 +74,23 @@
 }
 @end
 
-@interface ProbeRoot : UIViewController
+@interface ProbeRoot : UIViewController <SGRDynamicBarHostDelegate>
 @property(nonatomic, strong) UITabBarController *tabs;
 @property(nonatomic, strong) ProbePage *page;
 @property(nonatomic, strong) SGRDynamicBarScrollDriver *driver;
+@property(nonatomic, strong) SGRDynamicBarHost *chrome;
+@property(nonatomic, strong) UIViewController *originalPlayerParent;
+@property(nonatomic, strong) UIViewController *originalPlayer;
+@property(nonatomic, strong) ProbeAccessory *livePlayer;
+@property(nonatomic, strong) SGRLiveBarLayout *liveLayout;
+@property(nonatomic, copy) NSArray<UITabBarItem *> *items;
 @end
 @implementation ProbeRoot
 - (void)viewDidLoad {
     [super viewDidLoad];
     BOOL external = [NSProcessInfo.processInfo.arguments containsObject:@"external"];
     self.page = [ProbePage new];
+    if (external) { [self installProjectedPlayer]; return; }
     self.tabs = [UITabBarController new];
     NSMutableArray<UIViewController *> *pages = [NSMutableArray array];
     for (NSString *title in @[@"Home", @"Library", @"Search"]) {
@@ -95,22 +105,12 @@
     self.tabs.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
     ProbeAccessory *accessory = [ProbeAccessory new];
     self.tabs.bottomAccessory = [[UITabAccessory alloc] initWithContentView:accessory];
-    if (external) {
-        [self addChildViewController:self.page];
-        self.page.view.frame = self.view.bounds;
-        self.page.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self.view addSubview:self.page.view];
-        [self.page didMoveToParentViewController:self];
-        // The explicit owner is necessary but insufficient for expansion on iOS 26.5. The
-        // production adapter below supplies reverse-scroll intent without private UIKit calls.
-        for (UIViewController *page in pages) [page setContentScrollView:self.page.tableView forEdge:NSDirectionalRectEdgeAll];
-        self.driver = [SGRDynamicBarScrollDriver new];
-        self.driver.tabController = self.tabs;
-        self.driver.scrollView = self.page.tableView;
-        self.driver.permitted = YES;
-    }
+    self.driver = [SGRDynamicBarScrollDriver new];
+    self.driver.tabController = self.tabs;
+    self.driver.scrollView = self.page.tableView;
+    self.driver.permitted = YES;
     [self addChildViewController:self.tabs];
-    UIView *host = external ? [ProbePassthrough new] : [UIView new];
+    UIView *host = [UIView new];
     host.frame = self.view.bounds;
     host.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:host];
@@ -119,10 +119,59 @@
     self.tabs.view.backgroundColor = UIColor.clearColor;
     [host addSubview:self.tabs.view];
     [self.tabs didMoveToParentViewController:self];
-    if (external) {
-        ((ProbePassthrough *)host).bar = self.tabs.tabBar;
-        ((ProbePassthrough *)host).accessory = accessory;
+}
+- (void)installProjectedPlayer {
+    [self addChildViewController:self.page];
+    self.page.view.frame = self.view.bounds;
+    self.page.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:self.page.view];
+    [self.page didMoveToParentViewController:self];
+
+    self.chrome = [SGRDynamicBarHost new];
+    self.chrome.delegate = self;
+    [self addChildViewController:self.chrome];
+    self.chrome.view.frame = self.view.bounds;
+    self.chrome.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.view addSubview:self.chrome.view];
+    [self.chrome didMoveToParentViewController:self];
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSString *title in @[@"Home", @"Library", @"Search"]) {
+        [items addObject:[[UITabBarItem alloc] initWithTitle:title image:[UIImage systemImageNamed:@"music.note"] tag:items.count]];
     }
+    self.items = items;
+    self.chrome.observedScrollView = self.page.tableView;
+    [self.chrome setItems:items selectedIndex:0];
+    self.chrome.permitsMinimization = YES;
+
+    self.originalPlayerParent = [UIViewController new];
+    self.originalPlayerParent.view = [ProbePassthrough new];
+    [self addChildViewController:self.originalPlayerParent];
+    self.originalPlayerParent.view.frame = CGRectMake(0, 100, self.view.bounds.size.width, 56);
+    [self.view addSubview:self.originalPlayerParent.view];
+    [self.originalPlayerParent didMoveToParentViewController:self];
+    self.originalPlayer = [UIViewController new];
+    self.livePlayer = [ProbeAccessory new];
+    self.livePlayer.externalEnvironment = @"regular";
+    self.originalPlayer.view = self.livePlayer;
+    [self.originalPlayerParent addChildViewController:self.originalPlayer];
+    self.livePlayer.frame = self.originalPlayerParent.view.bounds;
+    [self.originalPlayerParent.view addSubview:self.livePlayer];
+    ((ProbePassthrough *)self.originalPlayerParent.view).accessory = self.livePlayer;
+    [self.originalPlayer didMoveToParentViewController:self.originalPlayerParent];
+}
+- (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
+    if (!self.livePlayer.window) return;
+    if (!self.liveLayout) self.liveLayout = [[SGRLiveBarLayout alloc] initWithSource:self.livePlayer cardRect:self.livePlayer.bounds];
+    self.livePlayer.externalEnvironment = inlineLayout ? @"inline" : @"regular";
+    BOOL placed = [self.liveLayout placeCardInRect:rect ofView:view];
+    BOOL sameOwner = self.originalPlayer.parentViewController == self.originalPlayerParent && self.livePlayer.superview == self.originalPlayerParent.view;
+    self.livePlayer.status.accessibilityValue = placed && sameOwner ? self.livePlayer.externalEnvironment : @"placement-failed";
+}
+- (UIView *)dynamicBarHost:(SGRDynamicBarHost *)host hitTest:(CGPoint)point inView:(UIView *)view event:(UIEvent *)event {
+    return [self.liveLayout hitTest:point fromView:view event:event];
+}
+- (void)dynamicBarHost:(SGRDynamicBarHost *)host didSelectIndex:(NSUInteger)index {
+    dispatch_async(dispatch_get_main_queue(), ^{ [host setItems:self.items selectedIndex:index]; });
 }
 @end
 

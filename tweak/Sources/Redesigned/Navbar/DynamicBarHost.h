@@ -5,6 +5,8 @@
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host didSelectIndex:(NSUInteger)index;
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout;
 - (UIView *)dynamicBarHost:(SGRDynamicBarHost *)host hitTest:(CGPoint)point inView:(UIView *)view event:(UIEvent *)event;
+@optional
+- (void)dynamicBarHost:(SGRDynamicBarHost *)host didHoldIndex:(NSUInteger)index;
 @end
 
 // A contained UIKit chrome controller. Its children are presentation proxies; the real application

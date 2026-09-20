@@ -94,6 +94,10 @@ static BOOL usableRect(CGRect rect) {
     }
     _applying = NO;
 }
+- (BOOL)ownsCurrentGeometry {
+    return self.placed && self.source && self.source.superview == _parent &&
+        CGRectEqualToRect(self.source.bounds, _appliedBounds) && CGPointEqualToPoint(self.source.center, _appliedCenter);
+}
 - (UIView *)hitTest:(CGPoint)point fromView:(UIView *)host event:(UIEvent *)event {
     UIView *source = self.source;
     if (!self.placed || !source || source.superview != _parent || source.window != host.window) return nil;

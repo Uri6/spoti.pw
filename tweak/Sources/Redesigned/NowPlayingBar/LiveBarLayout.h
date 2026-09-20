@@ -6,6 +6,7 @@
 @interface SGRLiveBarLayout : NSObject
 @property(nonatomic, readonly, getter=isApplying) BOOL applying;
 @property(nonatomic, readonly, getter=isPlaced) BOOL placed;
+@property(nonatomic, readonly) BOOL ownsCurrentGeometry;
 @property(nonatomic, weak, readonly) UIView *source;
 - (instancetype)initWithSource:(UIView *)source cardRect:(CGRect)cardRect;
 - (BOOL)placeCardInRect:(CGRect)rect ofView:(UIView *)host;
