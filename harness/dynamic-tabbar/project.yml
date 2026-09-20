@@ -20,6 +20,7 @@ targets:
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarPolicy.m
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarCoordinator.m
       - path: ../../tweak/Sources/Core/SGViewTree.m
+      - path: ../../tweak/Sources/Core/SGLog.m
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe

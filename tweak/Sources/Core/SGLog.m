@@ -1,5 +1,7 @@
 #import "SGLog.h"
 
+NSNotificationName const SGDiagnosticSnapshotNotification = @"SGDiagnosticSnapshotNotification";
+
 // The unified log cuts a message at about 1 KB, so long dumps go out as numbered parts.
 void SGLogLong(NSString *tag, NSString *text) {
     NSMutableArray<NSString *> *parts = [NSMutableArray array];

@@ -7,6 +7,7 @@
 
 static char kSession;
 static NSHashTable *sg_sessions;
+static void appendDiagnosticState(NSMutableString *out, BOOL launchEnabled);
 
 static BOOL enabled(void) {
     static BOOL value;
@@ -14,6 +15,9 @@ static BOOL enabled(void) {
     dispatch_once(&once, ^{
         value = SGRedesignedUI() && SGHidden(SGRKeyDynamicBar);
         SGLog(@"dynamic bar: %@ (launch setting)", value ? @"enabled" : @"disabled");
+        [NSNotificationCenter.defaultCenter addObserverForName:SGDiagnosticSnapshotNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+            if (NSThread.isMainThread && [note.object isKindOfClass:NSMutableString.class]) appendDiagnosticState(note.object, value);
+        }];
     });
     if (@available(iOS 26.0, *)) return value;
     return NO;
@@ -42,6 +46,7 @@ static BOOL enabled(void) {
 @property(nonatomic) BOOL mirrorInteraction;
 @property(nonatomic) CGSize lastSize;
 @property(nonatomic) uint32_t lastBlockers;
+@property(nonatomic, copy) NSString *lastRejection;
 - (void)refresh;
 - (void)detach;
 @end
@@ -164,6 +169,7 @@ static BOOL enabled(void) {
     SGRDynamicBarContext context = {SGRDynamicBarContentBlockers(self.player), rect.size.width, 240, rect.size.height};
     uint32_t blockers = SGRDynamicBarBlockers(context);
     if (blockers || ![self.layout placeCardInRect:rect ofView:view]) {
+        self.lastRejection = blockers ? [NSString stringWithFormat:@"accessory blockers 0x%x", blockers] : (self.layout.rejectionReason ?: @"layout unavailable");
         SGLog(@"dynamic bar: live layout rejected (blockers 0x%x, %@); returning presentation to Spotify", blockers,
               blockers ? @"accessory eligibility" : (self.layout.rejectionReason ?: @"layout unavailable"));
         [self detach];
@@ -210,6 +216,7 @@ void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisu
     SGRDynamicBarSession *value = session(container.viewIfLoaded.window, YES);
     if (!value || value.updating || value.layout.applying) return;
     if (value.layout.placed && !value.layout.ownsCurrentGeometry) {
+        value.lastRejection = @"Spotify replaced source geometry between layouts";
         [value detach];
         value.failedPlacement = YES; // Spotify reclaimed layout; do not compete on each pass.
     }
@@ -242,5 +249,63 @@ void SGRDynamicBarPlayerVisibility(UIViewController *player, BOOL shown) {
         value.fullPlayer = shown ? player : nil;
         [value.transitions removeAllObjects]; // Called only by completed appearance callbacks.
         [value refresh];
+    }
+}
+
+// Keep the last rejection readable through the existing USB tree endpoint even when iOS drops a
+// syslog message or the process changes during installation. These helpers only inspect UIKit.
+static NSString *diagnosticItem(id item) {
+    return item ? [NSString stringWithFormat:@"%@:%p", NSStringFromClass([item class]), item] : @"nil";
+}
+
+static void appendDiagnosticView(NSMutableString *out, NSString *role, UIView *view) {
+    [out appendFormat:@"%@ %@ frame=%@ bounds=%@ visible=%d hidden=%d alpha=%.2f interactive=%d clips=%d autoresizing=%d\n",
+        role, diagnosticItem(view), NSStringFromCGRect(view.frame), NSStringFromCGRect(view.bounds),
+        SGRDynamicBarViewVisible(view), view.hidden, view.alpha, view.userInteractionEnabled,
+        view.clipsToBounds, view.translatesAutoresizingMaskIntoConstraints];
+}
+
+static void appendOwnedConstraints(NSMutableString *out, UIView *view) {
+    for (NSLayoutConstraint *constraint in view.constraints) {
+        if (!constraint.active) continue;
+        // Attributes are NSLayoutAttribute numbers. Do not use -description: UIKit's descriptions
+        // can include label text. Only object identities and layout numbers are needed here.
+        [out appendFormat:@"  %@.%ld relation=%ld %@.%ld * %.3f + %.3f priority=%.0f\n",
+            diagnosticItem(constraint.firstItem), (long)constraint.firstAttribute, (long)constraint.relation,
+            diagnosticItem(constraint.secondItem), (long)constraint.secondAttribute,
+            constraint.multiplier, constraint.constant, constraint.priority];
+    }
+}
+
+static void appendDiagnosticConstraints(NSMutableString *out, UIView *view, NSUInteger depth) {
+    if (!view || depth > 5) return;
+    appendDiagnosticView(out, @"layout", view);
+    appendOwnedConstraints(out, view);
+    for (UIView *child in view.subviews) appendDiagnosticConstraints(out, child, depth + 1);
+}
+
+static void appendDiagnosticState(NSMutableString *out, BOOL launchEnabled) {
+    [out appendFormat:@"== dynamic bar\nlaunch-enabled=%d application-state=%ld sessions=%lu\n", launchEnabled,
+        (long)UIApplication.sharedApplication.applicationState, (unsigned long)sg_sessions.allObjects.count];
+    for (SGRDynamicBarSession *value in sg_sessions.allObjects) {
+        UIViewController *selected = [value.tabs respondsToSelector:@selector(selectedViewController)] ? [(id)value.tabs selectedViewController] : nil;
+        UIScrollView *scroll = SGRDynamicBarScrollOwner(selected);
+        [out appendFormat:@"session host=%d updating=%d failed-placement=%d last-blockers=0x%x content-blockers=0x%x rejection=%@\n",
+            value.host != nil, value.updating, value.failedPlacement, value.lastBlockers,
+            SGRDynamicBarContentBlockers(value.player), value.lastRejection ?: @"none"];
+        [out appendFormat:@"keyboard=%d full-player=%d transitions=%lu selected=%@ scroll=%@ scene-state=%ld\n",
+            value.keyboard, value.fullPlayer != nil, (unsigned long)value.transitions.allObjects.count,
+            diagnosticItem(selected), diagnosticItem(scroll), (long)value.window.windowScene.activationState];
+        appendDiagnosticView(out, @"stock", value.stockBar);
+        appendDiagnosticView(out, @"mirror", value.mirror);
+        appendDiagnosticView(out, @"player", value.player.viewIfLoaded);
+        appendDiagnosticView(out, @"card", value.card);
+        // Include the containing views that can own the player's height constraint, but not the
+        // rest of the application's tree or any media labels.
+        appendDiagnosticConstraints(out, value.player.viewIfLoaded, 0);
+        for (UIView *parent = value.player.viewIfLoaded.superview; parent && parent != value.window; parent = parent.superview) {
+            appendDiagnosticView(out, @"ancestor", parent);
+            appendOwnedConstraints(out, parent);
+        }
     }
 }

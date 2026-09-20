@@ -2,6 +2,7 @@
 #import <objc/runtime.h>
 #import "Redesigned/Navbar/DynamicBarCoordinator.h"
 #import "Redesigned/Navbar/DynamicBarHost.h"
+#import "Core/SGLog.h"
 
 @interface FixtureTabs : UIViewController
 @property(nonatomic, strong) UIViewController *selectedViewController;
@@ -169,6 +170,23 @@
     XCTAssertEqualWithAccuracy(old.alpha, 1, 0.001);
     XCTAssertTrue(old.userInteractionEnabled);
     XCTAssertNotNil(self.host);
+    XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
+}
+- (void)testDiagnosticSnapshotIsReadOnlyAndOmitsMediaText {
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 100, 20)];
+    label.text = @"Private fixture media title";
+    label.accessibilityIdentifier = @"Private fixture account identifier";
+    [self.card addSubview:label];
+    SGRDynamicBarHost *host = self.host;
+    CGRect frame = self.player.view.frame;
+    NSMutableString *report = [NSMutableString string];
+    [NSNotificationCenter.defaultCenter postNotificationName:SGDiagnosticSnapshotNotification object:report];
+    XCTAssertTrue([report containsString:@"== dynamic bar"]);
+    XCTAssertTrue([report containsString:@"launch-enabled=1"]);
+    XCTAssertFalse([report containsString:label.text]);
+    XCTAssertFalse([report containsString:label.accessibilityIdentifier]);
+    XCTAssertEqual(self.host, host);
+    XCTAssertTrue(CGRectEqualToRect(self.player.view.frame, frame));
     XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
 }
 @end

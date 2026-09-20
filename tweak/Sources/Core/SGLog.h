@@ -8,3 +8,7 @@
 void SGLogLong(NSString *tag, NSString *text);
 // Logs every class of the list that this Spotify does not have; a feature calls it from its %ctor.
 void SGRequireClasses(NSArray<NSString *> *names);
+
+// Read-only diagnostic snapshot, posted on the main thread by the debug tree server. Features may
+// append to the NSMutableString object without introducing imports from Diagnostics into UI layers.
+FOUNDATION_EXPORT NSNotificationName const SGDiagnosticSnapshotNotification;

@@ -89,6 +89,7 @@ NSString *SGScreenTree(void) {
         [out appendFormat:@"== view controllers\n%@\n", [root _printHierarchy]];
     }
     appendModState(out);
+    [NSNotificationCenter.defaultCenter postNotificationName:SGDiagnosticSnapshotNotification object:out];
     return out;
 }
 
