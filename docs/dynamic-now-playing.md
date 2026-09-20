@@ -72,14 +72,14 @@ summaries/attachments, and preserves the test command's exit status. Full Theos 
 the result into the privately supplied Spotify 9.1.78 IPA; the app binary and recordings stay out of
 the public repository.
 
-Verified code revision: `6010c4135caf7289bdd82c1c4bcc7fa8d08a21ac`, 2026-09-20. The private development
-run `35525643670` completed successfully with **40 passed, 0 failed, 0 skipped** tests:
+Verified code revision: `a3215b12135ab6df2f6b2d94155bfafd96692f31`, 2026-09-20. The private development
+run `35526406897` completed successfully with **41 passed, 0 failed, 0 skipped** tests:
 
 | Check | Result |
 | --- | --- |
 | Live layout lease and fitting | 13 UIKit unit tests passed |
 | Content and scroll capability inspection | 18 UIKit unit tests passed, including the captured ElementView audio identities |
-| Coordinator interruption and restoration | 7 UIKit unit tests passed |
+| Coordinator interruption, restoration and read-only diagnostics | 8 UIKit unit tests passed |
 | Native-owned and externally-owned scrolling | 2 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
 | Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
 | Layer boundaries and patch whitespace | Passed |
@@ -106,8 +106,8 @@ The correction recognizes both positive elements inside the same `SPTNowPlayingB
 video/Jam/attachment rejection, and resolves Swift class identities instead of comparing display
 names against mangled names. Regression fixtures reproduce the captured audio identities and a
 hidden Jam badge. Layout rejection diagnostics now distinguish clipping, reclaimed geometry,
-card sizing and control overflow. The replacement 40-test build includes this correction and was checked separately from the initial
-34-test build. Device behavior is still under investigation. A 56-point stock card fitting
+card sizing and control overflow. The replacement r2 build (`6010c41`, run `35525643670`) passed 40 tests including this correction, separately from the initial
+34-test build. The user retested r2 after installation and reported no collapse. A 56-point stock card fitting
 the shorter accessory remains an open integration question.
 
 Required before proposing default enablement: capture sanitized audio/video/Jam structures; verify
@@ -116,3 +116,9 @@ full-player open/dismiss/cancel, Connect, no-item/stop, navigation variants, acc
 background/foreground, rotation and banners. Check the diagnostic `dynamic bar: presentation blockers`
 bitmask against `DynamicBarPolicy.h` when the adapter declines to attach. Logs contain presentation
 reasons, not track titles or account information. Disable the setting and restart to roll back.
+
+Diagnostic revision r3 (`a3215b1`, the 41-test run above) adds a read-only section to the existing debug USB tree endpoint. It
+preserves the last placement rejection, reports current visibility and scroll ownership, and lists
+layout constraints without label text. This avoids depending on transient syslog messages across
+process replacement. It is diagnostic work, not evidence that the remaining integration failure
+is fixed. The phone disconnected before this revision could be installed.
