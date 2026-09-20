@@ -61,4 +61,3 @@ UIScrollView *SGRDynamicBarScrollOwner(UIViewController *controller) {
     });
     return ambiguous ? nil : best;
 }
-

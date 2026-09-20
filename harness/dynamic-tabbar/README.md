@@ -1,15 +1,35 @@
 # Native tab accessory feasibility probe
 
 This standalone app compares public UIKit minimization with an owned scroll view against an external
-scroll view explicitly designated by `setContentScrollView:forEdge:`. In the external case, the page
-and overlay tab controller are sibling child controllers. A passthrough host preserves touches to
-the page. No Spotify code or private UIKit selectors are involved.
+scroll view designated by `setContentScrollView:forEdge:`. Both use the production scroll driver.
+In the external case, the production chrome host positions the original player view while keeping
+its original controller and view parents. Its hit-test bridge delivers touches to the original
+button. No Spotify binary or private UIKit selectors are involved.
 
 The UI tests send actual drag gestures, assert the accessory's inline/regular trait, test its action
-while inline, and retain screenshots. Programmatically setting a content offset is not a substitute.
+while inline, repeat three cycles, select a different tab, and retain screenshots. The external
+button receives a real screen-coordinate touch: XCTest's accessibility hittability clips it at
+its original parent's bounds. This is an accessibility limitation, not a mocked button action.
+Production opts out for VoiceOver, Switch Control, AssistiveTouch, Reduce Motion and accessibility
+text sizes. Voice Control and other accessibility interactions still require device validation.
+
+Hosted unit tests exercise the production layout lease, content/scroll classifiers and presentation
+coordinator. Synthetic controller names correspond to binary metadata; the fixtures do not establish
+Spotify's runtime hierarchy. They cover video/extra-content rejection, ambiguous/short/horizontal
+scroll views, geometry replacement, fixed cards, restoration, keyboard, player appearance and
+transition setup before the animator supplies its bar.
 
 Generate with `xcodegen generate --spec project.yml`, then run the `DynamicTabBarProbe` test scheme on
 an iOS 26+ simulator. The private development workflow selects an available runtime and saves results.
+
+Run the UIKit-free fitting policy from the repository root:
+
+```sh
+clang -x c -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  harness/dynamic-tabbar/policy-test.c tweak/Sources/Redesigned/Navbar/DynamicBarPolicy.m \
+  -o /tmp/spoti-dynamic-policy-test
+/tmp/spoti-dynamic-policy-test
+```
 
 A pass proves only that UIKit can observe scrolling in this topology on the tested runtime. It does
 not prove Spotify's containment, live video, Jam, safe-area updates, or full-player transitions work.
