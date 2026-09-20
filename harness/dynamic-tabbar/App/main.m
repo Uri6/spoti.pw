@@ -1,5 +1,6 @@
 // Public-API feasibility probe, not a mock of Spotify's player or proof of Spotify integration.
 #import <UIKit/UIKit.h>
+#import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarScrollDriver.h"
 
 @interface ProbeAccessory : UIView
 @property(nonatomic, strong) UILabel *status;
@@ -73,6 +74,7 @@
 @interface ProbeRoot : UIViewController
 @property(nonatomic, strong) UITabBarController *tabs;
 @property(nonatomic, strong) ProbePage *page;
+@property(nonatomic, strong) SGRDynamicBarScrollDriver *driver;
 @end
 @implementation ProbeRoot
 - (void)viewDidLoad {
@@ -99,9 +101,13 @@
         self.page.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.view addSubview:self.page.view];
         [self.page didMoveToParentViewController:self];
-        // Both directions matter: bottom-only observation minimizes but did not expand again in
-        // the iOS 26.5 probe. Keep one authoritative scroll view for both edges.
+        // The explicit owner is necessary but insufficient for expansion on iOS 26.5. The
+        // production adapter below supplies reverse-scroll intent without private UIKit calls.
         for (UIViewController *page in pages) [page setContentScrollView:self.page.tableView forEdge:NSDirectionalRectEdgeAll];
+        self.driver = [SGRDynamicBarScrollDriver new];
+        self.driver.tabController = self.tabs;
+        self.driver.scrollView = self.page.tableView;
+        self.driver.permitted = YES;
     }
     [self addChildViewController:self.tabs];
     UIView *host = external ? [ProbePassthrough new] : [UIView new];
