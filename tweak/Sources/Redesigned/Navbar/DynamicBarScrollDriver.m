@@ -35,7 +35,15 @@
         _travel = 0;
         return;
     }
-    if (pan.state != UIGestureRecognizerStateChanged) { _travel = 0; return; }
+    if (pan.state != UIGestureRecognizerStateChanged) {
+        _travel = 0;
+        // UIKit starts observing minimization at the next gesture. Leaving `.never` in place
+        // until that gesture is already moving loses its beginning and can miss the whole drag.
+        if (self.permitted && (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled)) {
+            if (@available(iOS 26.0, *)) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
+        }
+        return;
+    }
     CGFloat delta = offset - _lastOffset;
     _lastOffset = offset;
     if (!self.permitted || !isfinite(delta) || bottom - top < 32) { [self expand]; return; }
