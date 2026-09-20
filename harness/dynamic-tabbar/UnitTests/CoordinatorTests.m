@@ -140,4 +140,27 @@
         userInfo:@{UIKeyboardFrameEndUserInfoKey: [NSValue valueWithCGRect:keyboard]}];
     XCTAssertNotNil(self.host);
 }
+- (void)testRestorationDoesNotOverwriteARecomputedGlassFrame {
+    XCTAssertNotNil(self.host);
+    CGRect updated = CGRectMake(3, 4, 100, 72);
+    self.glass.frame = updated;
+    NSObject *transition = [NSObject new];
+    SGRDynamicBarBeginTransition(self.stock, transition);
+    XCTAssertTrue(CGRectEqualToRect(self.glass.frame, updated));
+    [self assertRestored];
+}
+- (void)testReplacingTheMirrorReleasesTheOldMirror {
+    XCTAssertNotNil(self.host);
+    UITabBar *old = self.mirror;
+    [old removeFromSuperview];
+    self.mirror = [[UITabBar alloc] initWithFrame:self.stock.bounds];
+    self.mirror.items = old.items;
+    self.mirror.selectedItem = self.mirror.items.firstObject;
+    [self.stock addSubview:self.mirror];
+    [self refresh];
+    XCTAssertEqualWithAccuracy(old.alpha, 1, 0.001);
+    XCTAssertTrue(old.userInteractionEnabled);
+    XCTAssertNotNil(self.host);
+    XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
+}
 @end

@@ -82,7 +82,8 @@ static BOOL enabled(void) {
         if (self.glass.alpha == 0) self.glass.alpha = self.glassAlpha;
         if (self.mirror.alpha == 0) self.mirror.alpha = self.mirrorAlpha;
         self.mirror.userInteractionEnabled = self.mirrorInteraction;
-        if (!CGRectIsEmpty(self.naturalCard)) self.glass.frame = self.naturalCard;
+        // The player's styling hook owns the glass frame and runs during layout restoration.
+        // It may already reflect new content; a cached frame must not overwrite that result.
     }
     self.updating = NO;
     [self.player.viewIfLoaded setNeedsLayout];
@@ -195,7 +196,7 @@ void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITa
                            NSArray<UIView *> *sources, void (^select)(UIView *source)) {
     SGRDynamicBarSession *value = session(stockBar.window, YES);
     if (!value || value.updating) return;
-    if (value.tabs != container || value.stockBar != stockBar) [value detach];
+    if (value.tabs != container || value.stockBar != stockBar || value.mirror != mirror) [value detach];
     value.tabs = container; value.stockBar = stockBar; value.mirror = mirror;
     value.sources = sources; value.select = select;
     [value refresh];
@@ -207,7 +208,7 @@ void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisu
         [value detach];
         value.failedPlacement = YES; // Spotify reclaimed layout; do not compete on each pass.
     }
-    if (value.player != container || value.card != card) { [value detach]; value.failedPlacement = NO; }
+    if (value.player != container || value.card != card || value.glass != glass) { [value detach]; value.failedPlacement = NO; }
     value.player = container; value.card = card; value.glass = glass;
     [value refresh];
 }
