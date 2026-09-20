@@ -9,11 +9,12 @@
 @property(nonatomic, weak) SGRDynamicBarHost *owner;
 @end
 
-@interface SGRDynamicBarHost () <UITabBarControllerDelegate>
+@interface SGRDynamicBarHost () <UITabBarControllerDelegate, UIGestureRecognizerDelegate>
 @property(nonatomic, strong) UITabBarController *tabController;
 @property(nonatomic, strong) SGRAccessorySlot *slot;
 @property(nonatomic, strong) SGRDynamicBarScrollDriver *scrollDriver;
 @property(nonatomic) BOOL holding;
+@property(nonatomic, weak) UILongPressGestureRecognizer *hold;
 @end
 
 @implementation SGRAccessorySlot
@@ -65,7 +66,10 @@
     if (@available(iOS 26.0, *)) {
         self.tabController = [UITabBarController new];
         self.tabController.delegate = self;
-        [self.tabController.tabBar addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(held:)]];
+        UILongPressGestureRecognizer *hold = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(held:)];
+        hold.delegate = self;
+        [self.tabController.tabBar addGestureRecognizer:hold];
+        self.hold = hold;
         self.scrollDriver = [SGRDynamicBarScrollDriver new];
         self.scrollDriver.tabController = self.tabController;
         self.scrollDriver.scrollView = self.observedScrollView;
@@ -124,30 +128,42 @@
         [proxy setContentScrollView:scrollView forEdge:NSDirectionalRectEdgeAll];
     }
 }
+- (NSUInteger)itemIndexAt:(CGPoint)point {
+    UITabBar *bar = self.tabController.tabBar;
+    NSUInteger index = NSNotFound;
+    CGFloat distance = CGFLOAT_MAX;
+    NSMutableArray<UIView *> *pending = [bar.subviews mutableCopy];
+    while (pending.count) {
+        UIView *view = pending.lastObject;
+        [pending removeLastObject];
+        if (view.hidden || view.alpha < 0.01 || CGRectIsEmpty(view.bounds)) continue;
+        [pending addObjectsFromArray:view.subviews];
+        CGFloat dx = fabs([view convertPoint:CGPointMake(CGRectGetMidX(view.bounds), 0) toView:bar].x - point.x);
+        for (NSUInteger i = 0; i < bar.items.count && dx < distance; i++) {
+            UITabBarItem *item = bar.items[i];
+            BOOL match = [view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:item.title];
+            if ([view isKindOfClass:UIImageView.class]) {
+                UIImage *image = ((UIImageView *)view).image;
+                match |= image && (image == item.image || image == item.selectedImage);
+            }
+            if (match) { index = i; distance = dx; }
+        }
+    }
+    return index;
+}
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
+    if (gesture != self.hold) return YES;
+    NSUInteger index = [self itemIndexAt:[gesture locationInView:self.tabController.tabBar]];
+    return index != NSNotFound && [self.delegate respondsToSelector:@selector(dynamicBarHost:shouldHoldIndex:)] &&
+        [self.delegate dynamicBarHost:self shouldHoldIndex:index];
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
+    return YES;
+}
 - (void)held:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
         self.holding = YES;
-        UITabBar *bar = self.tabController.tabBar;
-        CGPoint point = [gesture locationInView:bar];
-        NSUInteger index = NSNotFound;
-        CGFloat distance = CGFLOAT_MAX;
-        NSMutableArray<UIView *> *pending = [bar.subviews mutableCopy];
-        while (pending.count) {
-            UIView *view = pending.lastObject;
-            [pending removeLastObject];
-            [pending addObjectsFromArray:view.subviews];
-            if (view.hidden || view.alpha < 0.01 || CGRectIsEmpty(view.bounds)) continue;
-            CGFloat dx = fabs([view convertPoint:CGPointMake(CGRectGetMidX(view.bounds), 0) toView:bar].x - point.x);
-            for (NSUInteger i = 0; i < bar.items.count && dx < distance; i++) {
-                UITabBarItem *item = bar.items[i];
-                BOOL match = [view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:item.title];
-                if ([view isKindOfClass:UIImageView.class]) {
-                    UIImage *image = ((UIImageView *)view).image;
-                    match |= image && (image == item.image || image == item.selectedImage);
-                }
-                if (match) { index = i; distance = dx; }
-            }
-        }
+        NSUInteger index = [self itemIndexAt:[gesture locationInView:self.tabController.tabBar]];
         if (index != NSNotFound && [self.delegate respondsToSelector:@selector(dynamicBarHost:didHoldIndex:)]) [self.delegate dynamicBarHost:self didHoldIndex:index];
     } else if (gesture.state != UIGestureRecognizerStateChanged) {
         __weak typeof(self) weakSelf = self;

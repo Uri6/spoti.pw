@@ -83,7 +83,12 @@ static void restyleCardContent(UIView *card) {
     });
     SGForEachView(card, ^(UIView *v) {
         CGRect f = v.frame;
-        if (f.size.height > 3 || f.size.width < 200 || v.superview.bounds.size.height < 40) return;
+        static char kProgressLine;
+        BOOL known = [objc_getAssociatedObject(v, &kProgressLine) boolValue];
+        if (f.size.height > 3 || (!known && f.size.width < 200) || v.superview.bounds.size.height < 40) return;
+        // Once measured in the expanded card, keep recognizing it below 200 pt so expansion
+        // restores its width after an inline layout. Do not classify arbitrary short separators.
+        if (!known) objc_setAssociatedObject(v, &kProgressLine, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         CGFloat width = MIN(226, MAX(0, card.bounds.size.width - 104));
         CGFloat x = card.effectiveUserInterfaceLayoutDirection == UIUserInterfaceLayoutDirectionRightToLeft ? card.bounds.size.width - 52 - width : 52;
         CGRect target = CGRectMake(x, card.bounds.size.height - 6, width, 2);

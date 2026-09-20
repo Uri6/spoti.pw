@@ -74,6 +74,8 @@
 - (void)testStockGeometryReplacementIsNotOverwritten {
     XCTAssertTrue([self.layout placeCardInRect:self.target ofView:self.window.rootViewController.view]);
     self.player.view.center = CGPointMake(99, 99);
+    XCTAssertFalse(self.layout.ownsCurrentGeometry);
+    XCTAssertNil([self.layout hitTest:CGPointMake(99, 99) fromView:self.window.rootViewController.view event:nil]);
     [self.layout restore];
     XCTAssertTrue(CGPointEqualToPoint(self.player.view.center, CGPointMake(99, 99)));
     XCTAssertTrue(CGSizeEqualToSize(self.player.view.bounds.size, CGSizeMake(390, 56)));
@@ -116,5 +118,14 @@
 - (void)testDisconnectedWindowCannotAcceptPlacement {
     [self.container.view removeFromSuperview];
     XCTAssertFalse([self.layout placeCardInRect:self.target ofView:self.window.rootViewController.view]);
+}
+- (void)testExternalTransformRevokesHitRoutingWithoutOverwritingTheTransform {
+    XCTAssertTrue([self.layout placeCardInRect:self.target ofView:self.window.rootViewController.view]);
+    CGAffineTransform transform = CGAffineTransformMakeTranslation(0, 10);
+    self.player.view.transform = transform;
+    XCTAssertFalse(self.layout.ownsCurrentGeometry);
+    XCTAssertNil([self.layout hitTest:CGPointMake(340, 235) fromView:self.window.rootViewController.view event:nil]);
+    [self.layout restore];
+    XCTAssertTrue(CGAffineTransformEqualToTransform(self.player.view.transform, transform));
 }
 @end

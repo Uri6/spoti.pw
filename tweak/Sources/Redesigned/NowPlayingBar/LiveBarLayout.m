@@ -95,12 +95,13 @@ static BOOL usableRect(CGRect rect) {
     _applying = NO;
 }
 - (BOOL)ownsCurrentGeometry {
-    return self.placed && self.source && self.source.superview == _parent &&
+    return self.placed && self.source && _window && self.source.window == _window &&
+        self.source.superview == _parent && CGAffineTransformIsIdentity(self.source.transform) &&
         CGRectEqualToRect(self.source.bounds, _appliedBounds) && CGPointEqualToPoint(self.source.center, _appliedCenter);
 }
 - (UIView *)hitTest:(CGPoint)point fromView:(UIView *)host event:(UIEvent *)event {
     UIView *source = self.source;
-    if (!self.placed || !source || source.superview != _parent || source.window != host.window) return nil;
+    if (!self.ownsCurrentGeometry || source.window != host.window) return nil;
     for (UIView *v = source; v; v = v.superview) {
         if (v.hidden || v.alpha < 0.01 || !v.userInteractionEnabled) return nil;
     }

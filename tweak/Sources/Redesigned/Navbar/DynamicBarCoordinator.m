@@ -38,6 +38,7 @@ static BOOL enabled(void) {
 @property(nonatomic) CGFloat mirrorAlpha;
 @property(nonatomic) BOOL mirrorInteraction;
 @property(nonatomic) CGSize lastSize;
+@property(nonatomic) uint32_t lastBlockers;
 - (void)refresh;
 - (void)detach;
 @end
@@ -49,7 +50,8 @@ static BOOL enabled(void) {
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         for (NSNotificationName name in @[UIApplicationWillResignActiveNotification, UIApplicationDidBecomeActiveNotification,
              UIAccessibilityVoiceOverStatusDidChangeNotification, UIContentSizeCategoryDidChangeNotification,
-             UIAccessibilityReduceMotionStatusDidChangeNotification]) [center addObserver:self selector:@selector(changed:) name:name object:nil];
+             UIAccessibilityReduceMotionStatusDidChangeNotification, UIAccessibilitySwitchControlStatusDidChangeNotification,
+             UIAccessibilityAssistiveTouchStatusDidChangeNotification]) [center addObserver:self selector:@selector(changed:) name:name object:nil];
         [center addObserver:self selector:@selector(keyboardChanged:) name:UIKeyboardWillChangeFrameNotification object:nil];
     }
     return self;
@@ -103,7 +105,8 @@ static BOOL enabled(void) {
     if (self.keyboard) blockers |= SGRDynamicBarKeyboard;
     if (self.fullPlayer) blockers |= SGRDynamicBarFullPlayer;
     if (self.transitions.allObjects.count) blockers |= SGRDynamicBarTransition;
-    if (UIAccessibilityIsVoiceOverRunning() || UIAccessibilityIsReduceMotionEnabled() ||
+    if (UIAccessibilityIsVoiceOverRunning() || UIAccessibilityIsSwitchControlRunning() || UIAccessibilityIsAssistiveTouchRunning() ||
+        UIAccessibilityIsReduceMotionEnabled() ||
         UIContentSizeCategoryIsAccessibilityCategory(self.window.traitCollection.preferredContentSizeCategory)) blockers |= SGRDynamicBarAccessibility;
     if (!scroll) blockers |= SGRDynamicBarNoScrollOwner;
     if (!self.card || !self.player) blockers |= SGRDynamicBarUnknownContent;
@@ -113,6 +116,10 @@ static BOOL enabled(void) {
     CGRect natural = self.layout ? self.naturalCard : [self.player.view convertRect:self.card.bounds fromView:self.card];
     SGRDynamicBarContext context = {blockers, self.window.bounds.size.width - 112, 240, natural.size.height};
     blockers = SGRDynamicBarBlockers(context);
+    if (self.lastBlockers != blockers) {
+        self.lastBlockers = blockers;
+        SGLog(@"dynamic bar: presentation blockers 0x%x", blockers);
+    }
     if (blockers) { self.failedPlacement = NO; [self detach]; return; }
     if (self.failedPlacement) return;
     self.updating = YES;
@@ -152,6 +159,7 @@ static BOOL enabled(void) {
     if (self.updating || host != self.host) return;
     SGRDynamicBarContext context = {SGRDynamicBarContentBlockers(self.player), rect.size.width, 240, rect.size.height};
     if (SGRDynamicBarBlockers(context) || ![self.layout placeCardInRect:rect ofView:view]) {
+        SGLog(@"dynamic bar: live layout rejected; returning presentation to Spotify");
         [self detach];
         self.failedPlacement = YES;
     }
@@ -159,8 +167,11 @@ static BOOL enabled(void) {
 - (UIView *)dynamicBarHost:(SGRDynamicBarHost *)host hitTest:(CGPoint)point inView:(UIView *)view event:(UIEvent *)event {
     return host == self.host ? [self.layout hitTest:point fromView:view event:event] : nil;
 }
+- (BOOL)dynamicBarHost:(SGRDynamicBarHost *)host shouldHoldIndex:(NSUInteger)index {
+    return host == self.host && index < self.sources.count && self.sources[index] == SGRowIn(self.stockBar).arrangedSubviews.firstObject;
+}
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host didHoldIndex:(NSUInteger)index {
-    if (index >= self.sources.count || self.sources[index] != SGRowIn(self.stockBar).arrangedSubviews.firstObject) return;
+    if (![self dynamicBarHost:host shouldHoldIndex:index]) return;
     UIView *source = self.stockBar;
     [self detach];
     SGOpenModSettings(source);
@@ -192,7 +203,10 @@ void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITa
 void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisualEffectView *glass) {
     SGRDynamicBarSession *value = session(container.viewIfLoaded.window, YES);
     if (!value || value.updating || value.layout.applying) return;
-    if (value.layout.placed && !value.layout.ownsCurrentGeometry) [value detach];
+    if (value.layout.placed && !value.layout.ownsCurrentGeometry) {
+        [value detach];
+        value.failedPlacement = YES; // Spotify reclaimed layout; do not compete on each pass.
+    }
     if (value.player != container || value.card != card) { [value detach]; value.failedPlacement = NO; }
     value.player = container; value.card = card; value.glass = glass;
     [value refresh];

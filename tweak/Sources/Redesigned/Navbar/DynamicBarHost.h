@@ -6,6 +6,7 @@
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout;
 - (UIView *)dynamicBarHost:(SGRDynamicBarHost *)host hitTest:(CGPoint)point inView:(UIView *)view event:(UIEvent *)event;
 @optional
+- (BOOL)dynamicBarHost:(SGRDynamicBarHost *)host shouldHoldIndex:(NSUInteger)index;
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host didHoldIndex:(NSUInteger)index;
 @end
 
