@@ -125,7 +125,7 @@ static BOOL enabled(void) {
     self.updating = YES;
     if (!self.host) {
         self.naturalCard = natural;
-        self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.player.view cardRect:natural];
+        self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.player.view cardView:self.card];
         self.host = [SGRDynamicBarHost new];
         self.host.delegate = self;
         self.glassAlpha = self.glass.alpha;
@@ -212,10 +212,16 @@ void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisu
     [value refresh];
 }
 void SGRDynamicBarBeginTransition(UIView *bar, id transition) {
-    SGRDynamicBarSession *value = session(bar.window, NO);
-    if (!value || !transition) return;
-    [value.transitions addObject:transition];
-    [value detach];
+    if (!transition) return;
+    // Some animators do not populate their bar ivar until setup. Suspend existing hosts before
+    // that setup too; guessing an origin would capture the inline card in an expanded snapshot.
+    NSArray *values = bar.window ? @[(session(bar.window, NO) ?: NSNull.null)] : sg_sessions.allObjects;
+    for (id candidate in values) {
+        if (![candidate isKindOfClass:SGRDynamicBarSession.class]) continue;
+        SGRDynamicBarSession *value = candidate;
+        [value.transitions addObject:transition];
+        [value detach];
+    }
 }
 void SGRDynamicBarEndTransition(id transition) {
     for (SGRDynamicBarSession *value in sg_sessions.allObjects) {

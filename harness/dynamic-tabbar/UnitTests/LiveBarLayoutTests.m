@@ -128,4 +128,24 @@
     [self.layout restore];
     XCTAssertTrue(CGAffineTransformEqualToTransform(self.player.view.transform, transform));
 }
+- (void)testFixedCardThatIgnoresTheRootResizeRejectsPlacement {
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(8, 0, 374, 56)];
+    [self.player.view addSubview:card];
+    self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.player.view cardView:card];
+    XCTAssertFalse([self.layout placeCardInRect:self.target ofView:self.window.rootViewController.view]);
+    XCTAssertFalse(self.layout.placed);
+    XCTAssertTrue(CGRectEqualToRect(self.player.view.frame, self.container.view.bounds));
+}
+- (void)testMeasuredCardMustFollowBothWidthAndHeight {
+    UIView *card = [[UIView alloc] initWithFrame:CGRectMake(8, 0, 374, 56)];
+    card.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [self.player.view addSubview:card];
+    self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.player.view cardView:card];
+    CGRect target = self.target;
+    target.size.height = 48;
+    XCTAssertTrue([self.layout placeCardInRect:target ofView:self.window.rootViewController.view]);
+    XCTAssertTrue(CGRectEqualToRect([card convertRect:card.bounds toView:self.window.rootViewController.view], target));
+    [card removeFromSuperview];
+    XCTAssertFalse([self.layout placeCardInRect:target ofView:self.window.rootViewController.view]);
+}
 @end

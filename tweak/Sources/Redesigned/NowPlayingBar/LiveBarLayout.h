@@ -9,6 +9,8 @@
 @property(nonatomic, readonly) BOOL ownsCurrentGeometry;
 @property(nonatomic, weak, readonly) UIView *source;
 - (instancetype)initWithSource:(UIView *)source cardRect:(CGRect)cardRect;
+// Production adapter: also verifies the actual card follows the proposed root layout.
+- (instancetype)initWithSource:(UIView *)source cardView:(UIView *)card;
 - (BOOL)placeCardInRect:(CGRect)rect ofView:(UIView *)host;
 - (void)restore;
 // Allows a passthrough chrome host to deliver a touch to the original control and recognizers,

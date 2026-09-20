@@ -12,9 +12,19 @@ static BOOL usableRect(CGRect rect) {
 @implementation SGRLiveBarLayout {
     __weak UIView *_parent;
     __weak UIWindow *_window;
+    __weak UIView *_cardView;
     CGRect _naturalBounds, _cardRect, _appliedBounds;
     CGPoint _naturalCenter, _appliedCenter;
     BOOL _valid;
+    BOOL _tracksCard;
+}
+- (instancetype)initWithSource:(UIView *)source cardView:(UIView *)card {
+    if ((self = [self initWithSource:source cardRect:[source convertRect:card.bounds fromView:card]])) {
+        _tracksCard = YES;
+        _cardView = card;
+        _valid &= card && (card == source || [card isDescendantOfView:source]);
+    }
+    return self;
 }
 - (instancetype)initWithSource:(UIView *)source cardRect:(CGRect)cardRect {
     if ((self = [super init])) {
@@ -36,6 +46,8 @@ static BOOL usableRect(CGRect rect) {
     if (self.applying || !_valid || !_window || !source || source.superview != _parent ||
         source.window != _window || host.window != _window || !usableRect(rect) ||
         !CGAffineTransformIsIdentity(source.transform)) return NO;
+    if (_tracksCard && (!_cardView || _cardView.window != _window || _cardView.hidden || _cardView.alpha < 0.01 ||
+        (_cardView != source && ![_cardView isDescendantOfView:source]))) return NO;
     // Change layout space, never the transform. Fixed-size controls must fit after relayout;
     // UIKit's inline accessory is shorter than the ordinary Spotify card.
     if (rect.size.height < 44 || rect.size.height > 64) return NO;
@@ -63,6 +75,11 @@ static BOOL usableRect(CGRect rect) {
     _applying = NO;
     // A constraint owner may have reclaimed the root during layout. Do not fight it every frame.
     BOOL retained = CGRectEqualToRect(source.bounds, bounds) && CGPointEqualToPoint(source.center, center);
+    if (_tracksCard) {
+        CGRect actual = [_cardView convertRect:_cardView.bounds toView:host];
+        retained &= fabs(actual.origin.x - rect.origin.x) <= 0.5 && fabs(actual.origin.y - rect.origin.y) <= 0.5 &&
+            fabs(actual.size.width - rect.size.width) <= 0.5 && fabs(actual.size.height - rect.size.height) <= 0.5;
+    }
     NSMutableArray<UIView *> *pending = [source.subviews mutableCopy];
     while (pending.count && retained) {
         UIView *view = pending.lastObject;

@@ -161,7 +161,7 @@
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
     if (!self.livePlayer.window) return;
-    if (!self.liveLayout) self.liveLayout = [[SGRLiveBarLayout alloc] initWithSource:self.livePlayer cardRect:self.livePlayer.bounds];
+    if (!self.liveLayout) self.liveLayout = [[SGRLiveBarLayout alloc] initWithSource:self.livePlayer cardView:self.livePlayer];
     self.livePlayer.externalEnvironment = inlineLayout ? @"inline" : @"regular";
     BOOL placed = [self.liveLayout placeCardInRect:rect ofView:view];
     BOOL sameOwner = self.originalPlayer.parentViewController == self.originalPlayerParent && self.livePlayer.superview == self.originalPlayerParent.view;

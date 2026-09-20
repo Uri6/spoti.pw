@@ -6,6 +6,7 @@ settings:
   base:
     CODE_SIGNING_ALLOWED: NO
     CLANG_ENABLE_OBJC_ARC: YES
+    HEADER_SEARCH_PATHS: $(SRCROOT)/../../tweak/Sources
 targets:
   DynamicTabBarProbe:
     type: application
@@ -17,6 +18,7 @@ targets:
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarHost.m
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarCapabilities.m
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarPolicy.m
+      - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarCoordinator.m
       - path: ../../tweak/Sources/Core/SGViewTree.m
     settings:
       base:
