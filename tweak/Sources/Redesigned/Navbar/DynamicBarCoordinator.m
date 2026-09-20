@@ -11,7 +11,10 @@ static NSHashTable *sg_sessions;
 static BOOL enabled(void) {
     static BOOL value;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ value = SGRedesignedUI() && SGHidden(SGRKeyDynamicBar); });
+    dispatch_once(&once, ^{
+        value = SGRedesignedUI() && SGHidden(SGRKeyDynamicBar);
+        SGLog(@"dynamic bar: %@ (launch setting)", value ? @"enabled" : @"disabled");
+    });
     if (@available(iOS 26.0, *)) return value;
     return NO;
 }
@@ -159,8 +162,10 @@ static BOOL enabled(void) {
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
     if (self.updating || host != self.host) return;
     SGRDynamicBarContext context = {SGRDynamicBarContentBlockers(self.player), rect.size.width, 240, rect.size.height};
-    if (SGRDynamicBarBlockers(context) || ![self.layout placeCardInRect:rect ofView:view]) {
-        SGLog(@"dynamic bar: live layout rejected; returning presentation to Spotify");
+    uint32_t blockers = SGRDynamicBarBlockers(context);
+    if (blockers || ![self.layout placeCardInRect:rect ofView:view]) {
+        SGLog(@"dynamic bar: live layout rejected (blockers 0x%x, %@); returning presentation to Spotify", blockers,
+              blockers ? @"accessory eligibility" : (self.layout.rejectionReason ?: @"layout unavailable"));
         [self detach];
         self.failedPlacement = YES;
     }

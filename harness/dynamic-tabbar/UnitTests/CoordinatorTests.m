@@ -56,10 +56,18 @@
     self.naturalFrame = CGRectMake(0, 100, self.window.bounds.size.width, 64);
     [self add:self.player to:self.tabs frame:self.naturalFrame];
     self.card = [[UIView alloc] initWithFrame:CGRectMake(8, 0, self.naturalFrame.size.width - 16, 56)];
+    self.card.accessibilityIdentifier = @"SPTNowPlayingBar";
     self.card.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.player.view addSubview:self.card];
-    [self addPlayerController:@"_TtC18NowPlaying_BarImpl25BarCoverArtViewController"];
-    [self addPlayerController:@"_TtC18NowPlaying_BarImpl35ContentViewControllerImplementation"];
+    [self addPlayerController:@"NowPlaying_BarImpl.ContentViewControllerImplementation"];
+    // The device's ordinary audio uses ElementViews, without a cover-art controller.
+    for (NSString *name in @[@"_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__",
+                            @"_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI24BarTrackInfoElementPropsP_P__"]) {
+        Class cls = NSClassFromString(name);
+        if (!cls) { cls = objc_allocateClassPair(UIView.class, name.UTF8String, 0); objc_registerClassPair(cls); }
+        UIView *element = [[cls alloc] initWithFrame:CGRectMake(8, 8, 40, 40)];
+        [self.card addSubview:element];
+    }
     self.glass = [[UIVisualEffectView alloc] initWithEffect:nil];
     self.glass.frame = self.card.frame;
     [self.player.view insertSubview:self.glass atIndex:0];

@@ -2,8 +2,8 @@
 #import <objc/runtime.h>
 #import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarCapabilities.h"
 
-// Synthetic trees exercise the classifier's rejection rules, not Spotify's actual hierarchy.
-// Names come from 9.1.78 metadata; their co-occurrence must still be checked on a physical device.
+// The ElementView audio fixture reproduces the relevant identities from the 9.1.78 device
+// capture documented in ../fixtures/spotify-9.1.78-audio.md. Layout remains synthetic UIKit.
 static id fixture(NSString *name, Class superclass) {
     Class cls = NSClassFromString(name);
     if (!cls) { cls = objc_allocateClassPair(superclass, name.UTF8String, 0); objc_registerClassPair(cls); }
@@ -46,6 +46,27 @@ static id fixture(NSString *name, Class superclass) {
     [self addController:@"_TtC18NowPlaying_BarImpl25BarCoverArtViewController"];
     [self addController:@"_TtC18NowPlaying_BarImpl35ContentViewControllerImplementation"];
 }
+- (UIView *)addElementAudio {
+    UIViewController *bar = [self addController:@"NowPlaying_BarImpl.NowPlayingBarViewController"];
+    UIViewController *content = fixture(@"NowPlaying_BarImpl.ContentViewControllerImplementation", UIViewController.class);
+    [bar addChildViewController:content];
+    content.view.frame = CGRectMake(0, 0, 386, 56);
+    content.view.accessibilityIdentifier = @"SPTNowPlayingBar";
+    [bar.view addSubview:content.view];
+    [content didMoveToParentViewController:bar];
+    UIViewController *duration = fixture(@"NowPlaying_BarImpl.DurationViewController", UIViewController.class);
+    [content addChildViewController:duration];
+    duration.view.frame = CGRectMake(52, 50, 226, 2);
+    [content.view addSubview:duration.view];
+    [duration didMoveToParentViewController:content];
+    UIView *artwork = fixture(@"_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__", UIView.class);
+    artwork.frame = CGRectMake(8, 8, 40, 40);
+    [content.view addSubview:artwork];
+    UIView *info = fixture(@"_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI24BarTrackInfoElementPropsP_P__", UIView.class);
+    info.frame = CGRectMake(56, 12, 230, 31);
+    [content.view addSubview:info];
+    return content.view;
+}
 - (UIScrollView *)addScroll:(CGRect)frame height:(CGFloat)height {
     UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:frame];
     scroll.contentSize = CGSizeMake(frame.size.width, height);
@@ -75,6 +96,58 @@ static id fixture(NSString *name, Class superclass) {
     XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
     video.view.hidden = NO;
     XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarVideo);
+}
+- (void)testCapturedElementAudioDoesNotRequireACoverController {
+    [self addElementAudio];
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+}
+- (void)testCapturedElementAudioRequiresVisibleArtworkAndTrackInfoInTheStockCard {
+    UIView *card = [self addElementAudio];
+    UIView *info = card.subviews.lastObject;
+    info.alpha = 0;
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarUnknownContent);
+    info.alpha = 1;
+    [self.root.view addSubview:info];
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarUnknownContent);
+    [card addSubview:info];
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+    card.accessibilityIdentifier = nil;
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarUnknownContent);
+}
+- (void)testDemangledVideoIdentityRevokesCapturedAudioEligibility {
+    [self addElementAudio];
+    UIViewController *video = [self addController:@"NowPlaying_BarImpl.BarVideoViewController"];
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarVideo);
+    video.view.alpha = 0;
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+    video.view.alpha = 1;
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarVideo);
+}
+- (void)testVideoSubclassAlsoRevokesEligibility {
+    [self addElementAudio];
+    Class videoType = [fixture(@"_TtC18NowPlaying_BarImpl22BarVideoViewController", UIViewController.class) class];
+    fixture(@"ProbeVideoSubclass", videoType);
+    [self addController:@"ProbeVideoSubclass"];
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarVideo);
+}
+- (void)testDormantJamBadgeInCapturedAudioDoesNotBlockUntilVisible {
+    UIView *card = [self addElementAudio];
+    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(56, 20, 44, 16)];
+    container.hidden = YES;
+    [card addSubview:container];
+    UIView *badge = fixture(@"NowPlaying_ECMKit.JamListeningAlongLiveBadgeView", UIView.class);
+    badge.frame = container.bounds;
+    [container addSubview:badge];
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+    container.hidden = NO;
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarExtraContent);
+}
+- (void)testDemangledAttachmentViewRequiresExpandedPresentation {
+    UIView *card = [self addElementAudio];
+    UIView *attachment = fixture(@"NowPlaying_BarImpl.AttachmentView", UIView.class);
+    attachment.frame = CGRectMake(0, 0, 50, 30);
+    [card addSubview:attachment];
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarExtraContent);
 }
 - (void)testAttachmentControllersRequireExpandedPresentation {
     [self addAudio];

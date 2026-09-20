@@ -42,19 +42,20 @@ static BOOL usableRect(CGRect rect) {
 }
 - (BOOL)placeCardInRect:(CGRect)rect ofView:(UIView *)host {
     NSAssert(NSThread.isMainThread, @"live bar placement is main-thread only");
+    _rejectionReason = nil;
     UIView *source = self.source;
     if (self.applying || !_valid || !_window || !source || source.superview != _parent ||
         source.window != _window || host.window != _window || !usableRect(rect) ||
-        !CGAffineTransformIsIdentity(source.transform)) return NO;
+        !CGAffineTransformIsIdentity(source.transform)) return [self reject:@"source ownership, window or geometry unavailable"];
     if (_tracksCard && (!_cardView || _cardView.window != _window || _cardView.hidden || _cardView.alpha < 0.01 ||
-        (_cardView != source && ![_cardView isDescendantOfView:source]))) return NO;
+        (_cardView != source && ![_cardView isDescendantOfView:source]))) return [self reject:@"card detached or hidden"];
     // Change layout space, never the transform. Fixed-size controls must fit after relayout;
     // UIKit's inline accessory is shorter than the ordinary Spotify card.
-    if (rect.size.height < 44 || rect.size.height > 64) return NO;
+    if (rect.size.height < 44 || rect.size.height > 64) return [self reject:@"accessory height outside supported range"];
     for (UIView *ancestor = _parent; ancestor; ancestor = ancestor.superview) {
         if (ancestor.hidden || ancestor.alpha < 0.01 || !ancestor.userInteractionEnabled ||
-            !CGAffineTransformIsIdentity(ancestor.transform) || ancestor.layer.mask) return NO;
-        if (ancestor.clipsToBounds && !CGRectContainsRect(ancestor.bounds, [ancestor convertRect:rect fromView:host])) return NO;
+            !CGAffineTransformIsIdentity(ancestor.transform) || ancestor.layer.mask) return [self reject:@"ancestor hidden, noninteractive, transformed or masked"];
+        if (ancestor.clipsToBounds && !CGRectContainsRect(ancestor.bounds, [ancestor convertRect:rect fromView:host])) return [self reject:@"ancestor clips accessory placement"];
     }
     CGRect local = [_parent convertRect:rect fromView:host];
     CGFloat left = CGRectGetMinX(_cardRect) - CGRectGetMinX(_naturalBounds);
@@ -75,10 +76,13 @@ static BOOL usableRect(CGRect rect) {
     _applying = NO;
     // A constraint owner may have reclaimed the root during layout. Do not fight it every frame.
     BOOL retained = CGRectEqualToRect(source.bounds, bounds) && CGPointEqualToPoint(source.center, center);
+    if (!retained) _rejectionReason = @"Spotify reclaimed source geometry during layout";
     if (_tracksCard) {
         CGRect actual = [_cardView convertRect:_cardView.bounds toView:host];
-        retained &= fabs(actual.origin.x - rect.origin.x) <= 0.5 && fabs(actual.origin.y - rect.origin.y) <= 0.5 &&
+        BOOL cardFits = fabs(actual.origin.x - rect.origin.x) <= 0.5 && fabs(actual.origin.y - rect.origin.y) <= 0.5 &&
             fabs(actual.size.width - rect.size.width) <= 0.5 && fabs(actual.size.height - rect.size.height) <= 0.5;
+        if (!cardFits && retained) _rejectionReason = [NSString stringWithFormat:@"card did not relayout: actual %@, slot %@", NSStringFromCGRect(actual), NSStringFromCGRect(rect)];
+        retained &= cardFits;
     }
     NSMutableArray<UIView *> *pending = [source.subviews mutableCopy];
     while (pending.count && retained) {
@@ -88,12 +92,17 @@ static BOOL usableRect(CGRect rect) {
         if ([view isKindOfClass:UIControl.class] && view.userInteractionEnabled) {
             CGRect control = [source convertRect:view.bounds fromView:view];
             retained = usableRect(control) && CGRectContainsRect(source.bounds, control);
+            if (!retained) _rejectionReason = @"control outside resized source bounds";
         } else {
             [pending addObjectsFromArray:view.subviews];
         }
     }
     if (!retained) [self restore];
     return retained;
+}
+- (BOOL)reject:(NSString *)reason {
+    _rejectionReason = reason;
+    return NO;
 }
 - (void)restore {
     NSAssert(NSThread.isMainThread, @"live bar restoration is main-thread only");

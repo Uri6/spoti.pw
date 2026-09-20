@@ -7,6 +7,8 @@
 @property(nonatomic, readonly, getter=isApplying) BOOL applying;
 @property(nonatomic, readonly, getter=isPlaced) BOOL placed;
 @property(nonatomic, readonly) BOOL ownsCurrentGeometry;
+// Geometry-only diagnostic for a rejected placement; contains no media or account data.
+@property(nonatomic, copy, readonly) NSString *rejectionReason;
 @property(nonatomic, weak, readonly) UIView *source;
 - (instancetype)initWithSource:(UIView *)source cardRect:(CGRect)cardRect;
 // Production adapter: also verifies the actual card follows the proposed root layout.

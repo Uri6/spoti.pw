@@ -1,5 +1,6 @@
 #import "DynamicBarCapabilities.h"
 #import "../../Core/SGViewTree.h"
+#import <objc/runtime.h>
 
 BOOL SGRDynamicBarViewVisible(UIView *view) {
     if (!view.window || CGRectIsEmpty(view.bounds)) return NO;
@@ -7,8 +8,18 @@ BOOL SGRDynamicBarViewVisible(UIView *view) {
     return YES;
 }
 
-// Positive controller identities, verified in the Objective-C class metadata of Spotify 9.1.78.
-// Do not replace these with playback-URI heuristics: video/Jam can change without a new URI.
+// Swift's runtime name and NSStringFromClass are not interchangeable. Resolve the actual class,
+// including subclasses, instead of comparing a demangled display name to a mangled binary name.
+static BOOL hasIdentity(id object, const char *runtimeName, NSString *displayName) {
+    Class type = objc_lookUpClass(runtimeName);
+    if (type && [object isKindOfClass:type]) return YES;
+    type = displayName ? NSClassFromString(displayName) : Nil;
+    return type && [object isKindOfClass:type];
+}
+
+// The 9.1.78 device capture contains Content + ElementView artwork/track info, with no
+// BarCoverArtViewController child. Keep the older cover-controller shape as a separate capability.
+// Do not use playback-URI heuristics: video/Jam can change without a new URI.
 uint32_t SGRDynamicBarContentBlockers(UIViewController *root) {
     if (!root) return SGRDynamicBarUnknownContent;
     BOOL cover = NO, content = NO;
@@ -19,20 +30,30 @@ uint32_t SGRDynamicBarContentBlockers(UIViewController *root) {
         [pending removeLastObject];
         if (!SGRDynamicBarViewVisible(vc.viewIfLoaded)) continue;
         NSString *name = NSStringFromClass(vc.class);
-        cover |= [name isEqualToString:@"_TtC18NowPlaying_BarImpl25BarCoverArtViewController"];
-        content |= [name isEqualToString:@"_TtC18NowPlaying_BarImpl35ContentViewControllerImplementation"];
-        if ([name isEqualToString:@"_TtC18NowPlaying_BarImpl22BarVideoViewController"]) reasons |= SGRDynamicBarVideo;
+        cover |= hasIdentity(vc, "_TtC18NowPlaying_BarImpl25BarCoverArtViewController", @"NowPlaying_BarImpl.BarCoverArtViewController");
+        content |= hasIdentity(vc, "_TtC18NowPlaying_BarImpl35ContentViewControllerImplementation", @"NowPlaying_BarImpl.ContentViewControllerImplementation");
+        if (hasIdentity(vc, "_TtC18NowPlaying_BarImpl22BarVideoViewController", @"NowPlaying_BarImpl.BarVideoViewController")) reasons |= SGRDynamicBarVideo;
         if ([name containsString:@"AttachmentController"]) reasons |= SGRDynamicBarExtraContent;
         [pending addObjectsFromArray:vc.childViewControllers];
     }
-    if (!cover || !content) reasons |= SGRDynamicBarUnknownContent;
-    __block BOOL extra = NO;
+    __block BOOL extra = NO, elementAudio = NO;
     SGForEachView(root.viewIfLoaded, ^(UIView *view) {
         if (!SGRDynamicBarViewVisible(view)) return;
         NSString *name = NSStringFromClass(view.class);
         if ([name containsString:@"JamListeningAlongLiveBadge"] || [name containsString:@"NowPlayingBarHatElementUI"] ||
-            [name hasSuffix:@"14AttachmentView"]) extra = YES;
+            hasIdentity(view, "_TtC18NowPlaying_BarImpl14AttachmentView", @"NowPlaying_BarImpl.AttachmentView")) extra = YES;
+        if (![view.accessibilityIdentifier isEqualToString:@"SPTNowPlayingBar"]) return;
+        // Both positive elements must be visible in this same stock card. An arbitrary image,
+        // label, or stale element on another page must not make an unknown card eligible.
+        __block BOOL artwork = NO, trackInfo = NO;
+        SGForEachView(view, ^(UIView *child) {
+            if (!SGRDynamicBarViewVisible(child)) return;
+            artwork |= hasIdentity(child, "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__", nil);
+            trackInfo |= hasIdentity(child, "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI24BarTrackInfoElementPropsP_P__", nil);
+        });
+        elementAudio |= artwork && trackInfo;
     });
+    if (!content || (!cover && !elementAudio)) reasons |= SGRDynamicBarUnknownContent;
     return reasons | (extra ? SGRDynamicBarExtraContent : 0);
 }
 

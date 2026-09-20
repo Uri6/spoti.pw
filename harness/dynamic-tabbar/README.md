@@ -14,8 +14,9 @@ Production opts out for VoiceOver, Switch Control, AssistiveTouch, Reduce Motion
 text sizes. Voice Control and other accessibility interactions still require device validation.
 
 Hosted unit tests exercise the production layout lease, content/scroll classifiers and presentation
-coordinator. Synthetic controller names correspond to binary metadata; the fixtures do not establish
-Spotify's runtime hierarchy. They cover video/extra-content rejection, ambiguous/short/horizontal
+coordinator. The [ordinary-audio fixture](fixtures/spotify-9.1.78-audio.md) reproduces identities and
+nesting observed on a physical device; its UIKit layout remains synthetic. Other controller names
+correspond to binary metadata. The fixtures cover video/extra-content rejection, ambiguous/short/horizontal
 scroll views, geometry replacement, fixed cards, restoration, keyboard, player appearance and
 transition setup before the animator supplies its bar.
 
