@@ -7,7 +7,6 @@
 void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITabBar *mirror,
                              NSArray<UIView *> *sources, void (^select)(UIView *source));
 void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisualEffectView *glass);
-BOOL SGRDynamicBarIsLayingOut(UIViewController *container);
 void SGRDynamicBarBeginTransition(UIView *bar, id transition);
 void SGRDynamicBarEndTransition(id transition);
 void SGRDynamicBarPlayerVisibility(UIViewController *player, BOOL visible);

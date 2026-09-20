@@ -19,4 +19,3 @@ void SGOpenModSettings(UIView *source) {}
 void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITabBar *mirror,
                             NSArray<UIView *> *sources, void (^select)(UIView *)) {}
 void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisualEffectView *glass) {}
-BOOL SGRDynamicBarIsLayingOut(UIViewController *container) { return NO; }

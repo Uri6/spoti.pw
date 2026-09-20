@@ -1,6 +1,6 @@
 #import "DynamicBarCoordinator.h"
 #import "DynamicBarHost.h"
-#import "DynamicBarPolicy.h"
+#import "DynamicBarCapabilities.h"
 #import "Core/SGCore.h"
 #import "Settings/SGPage.h"
 #import "Redesigned/NowPlayingBar/LiveBarLayout.h"
@@ -14,67 +14,6 @@ static BOOL enabled(void) {
     dispatch_once(&once, ^{ value = SGRedesignedUI() && SGHidden(SGRKeyDynamicBar); });
     if (@available(iOS 26.0, *)) return value;
     return NO;
-}
-
-static BOOL visible(UIView *view) {
-    if (!view.window || CGRectIsEmpty(view.bounds)) return NO;
-    for (UIView *v = view; v; v = v.superview) if (v.hidden || v.alpha < 0.01) return NO;
-    return YES;
-}
-
-// Positive controller identities, verified in the Objective-C class metadata of Spotify 9.1.78.
-// Do not replace these with playback-URI heuristics: video/Jam can change without a new URI.
-static uint32_t contentBlockers(UIViewController *root) {
-    if (!root) return SGRDynamicBarUnknownContent;
-    BOOL cover = NO, content = NO;
-    uint32_t reasons = 0;
-    NSMutableArray<UIViewController *> *pending = [NSMutableArray arrayWithObject:root];
-    while (pending.count) {
-        UIViewController *vc = pending.lastObject;
-        [pending removeLastObject];
-        if (!visible(vc.viewIfLoaded)) continue;
-        NSString *name = NSStringFromClass(vc.class);
-        cover |= [name isEqualToString:@"_TtC18NowPlaying_BarImpl25BarCoverArtViewController"];
-        content |= [name isEqualToString:@"_TtC18NowPlaying_BarImpl35ContentViewControllerImplementation"];
-        if ([name isEqualToString:@"_TtC18NowPlaying_BarImpl22BarVideoViewController"]) reasons |= SGRDynamicBarVideo;
-        if ([name containsString:@"AttachmentController"]) reasons |= SGRDynamicBarExtraContent;
-        [pending addObjectsFromArray:vc.childViewControllers];
-    }
-    if (!cover || !content) reasons |= SGRDynamicBarUnknownContent;
-    __block BOOL extra = NO;
-    SGForEachView(root.viewIfLoaded, ^(UIView *view) {
-        if (!visible(view)) return;
-        NSString *name = NSStringFromClass(view.class);
-        if ([name containsString:@"JamListeningAlongLiveBadge"] || [name containsString:@"NowPlayingBarHatElementUI"] ||
-            [name hasSuffix:@"14AttachmentView"]) extra = YES;
-    });
-    return reasons | (extra ? SGRDynamicBarExtraContent : 0);
-}
-
-// Only a single, dominant vertical list on the active page is eligible. Carousels, the full player,
-// ambiguous nested lists, and sheets never become implicit global scroll owners.
-static UIScrollView *scrollOwner(UIViewController *controller) {
-    if ([controller isKindOfClass:UINavigationController.class]) controller = ((UINavigationController *)controller).visibleViewController;
-    UIView *page = controller.viewIfLoaded;
-    if (!visible(page) || controller.presentedViewController) return nil;
-    for (UIViewController *parent = controller; parent; parent = parent.parentViewController) {
-        if (parent.transitionCoordinator || parent.presentedViewController) return nil;
-    }
-    __block UIScrollView *best = nil;
-    __block CGFloat bestArea = 0;
-    __block BOOL ambiguous = NO;
-    SGForEachView(page, ^(UIView *view) {
-        if (![view isKindOfClass:UIScrollView.class] || !visible(view)) return;
-        UIScrollView *scroll = (UIScrollView *)view;
-        if (!scroll.scrollEnabled || scroll.bounds.size.width < page.bounds.size.width * 0.65 ||
-            scroll.bounds.size.height < page.bounds.size.height * 0.45 ||
-            scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom <= scroll.bounds.size.height + 32 ||
-            [scroll.accessibilityIdentifier isEqualToString:@"scrolling_npv_collection_view_accessibility_identifier"]) return;
-        CGFloat area = scroll.bounds.size.width * scroll.bounds.size.height;
-        if (area > bestArea * 1.1) { best = scroll; bestArea = area; ambiguous = NO; }
-        else if (area >= bestArea * 0.9) ambiguous = YES;
-    });
-    return ambiguous ? nil : best;
 }
 
 @interface SGRDynamicBarSession : NSObject <SGRDynamicBarHostDelegate>
@@ -156,10 +95,10 @@ static UIScrollView *scrollOwner(UIViewController *controller) {
     UIViewController *selected = nil;
     // Getter and return type verified in 9.1.78 class metadata (0x107d50c84).
     if ([self.tabs respondsToSelector:@selector(selectedViewController)]) selected = [(id)self.tabs selectedViewController];
-    UIScrollView *scroll = scrollOwner(selected);
+    UIScrollView *scroll = SGRDynamicBarScrollOwner(selected);
     uint32_t blockers = 0;
     if (!self.window || self.stockBar.window != self.window || self.player.viewIfLoaded.window != self.window) blockers |= SGRDynamicBarDetached;
-    if (!visible(self.stockBar) || !visible(self.player.viewIfLoaded) || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) blockers |= SGRDynamicBarStockHidden;
+    if (!SGRDynamicBarViewVisible(self.stockBar) || !SGRDynamicBarViewVisible(self.player.viewIfLoaded) || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) blockers |= SGRDynamicBarStockHidden;
     if (self.window.traitCollection.horizontalSizeClass != UIUserInterfaceSizeClassCompact) blockers |= SGRDynamicBarRegularWidth;
     if (self.keyboard) blockers |= SGRDynamicBarKeyboard;
     if (self.fullPlayer) blockers |= SGRDynamicBarFullPlayer;
@@ -168,8 +107,8 @@ static UIScrollView *scrollOwner(UIViewController *controller) {
         UIContentSizeCategoryIsAccessibilityCategory(self.window.traitCollection.preferredContentSizeCategory)) blockers |= SGRDynamicBarAccessibility;
     if (!scroll) blockers |= SGRDynamicBarNoScrollOwner;
     if (!self.card || !self.player) blockers |= SGRDynamicBarUnknownContent;
-    else blockers |= contentBlockers(self.player);
-    NSUInteger index = [self.mirror.items indexOfObject:self.mirror.selectedItem];
+    else blockers |= SGRDynamicBarContentBlockers(self.player);
+    NSUInteger index = self.mirror.selectedItem ? [self.mirror.items indexOfObject:self.mirror.selectedItem] : NSNotFound;
     if (index == NSNotFound || index >= self.sources.count || self.sources.count > 5) blockers |= SGRDynamicBarUnknownContent;
     CGRect natural = self.layout ? self.naturalCard : [self.player.view convertRect:self.card.bounds fromView:self.card];
     SGRDynamicBarContext context = {blockers, self.window.bounds.size.width - 112, 240, natural.size.height};
@@ -211,7 +150,7 @@ static UIScrollView *scrollOwner(UIViewController *controller) {
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
     if (self.updating || host != self.host) return;
-    SGRDynamicBarContext context = {contentBlockers(self.player), rect.size.width, 240, rect.size.height};
+    SGRDynamicBarContext context = {SGRDynamicBarContentBlockers(self.player), rect.size.width, 240, rect.size.height};
     if (SGRDynamicBarBlockers(context) || ![self.layout placeCardInRect:rect ofView:view]) {
         [self detach];
         self.failedPlacement = YES;
@@ -249,10 +188,6 @@ void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITa
     value.tabs = container; value.stockBar = stockBar; value.mirror = mirror;
     value.sources = sources; value.select = select;
     [value refresh];
-}
-BOOL SGRDynamicBarIsLayingOut(UIViewController *container) {
-    SGRDynamicBarSession *value = session(container.viewIfLoaded.window, NO);
-    return value.updating || value.layout.applying;
 }
 void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisualEffectView *glass) {
     SGRDynamicBarSession *value = session(container.viewIfLoaded.window, YES);

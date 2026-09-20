@@ -94,8 +94,7 @@ static void restyleCardContent(UIView *card) {
     });
 }
 
-static void styleNowPlayingBar(UIViewController *container) {
-    if (SGRDynamicBarIsLayingOut(container)) return;
+static void applyNowPlayingBarStyle(UIViewController *container) {
     UIViewController *barVC = container.childViewControllers.firstObject;
     UIView *bar = barVC.viewIfLoaded ?: container.view;
     sgr_nowPlayingRoot = bar;
@@ -131,6 +130,16 @@ static void styleNowPlayingBar(UIViewController *container) {
         SGLog(@"now playing card %@ at %@ (bar %@, container %@)", card.class, NSStringFromCGRect(frame),
               NSStringFromCGRect(bar.frame), NSStringFromCGRect(container.view.bounds));
     });
+}
+
+static void styleNowPlayingBar(UIViewController *container) {
+    static char kStyling;
+    if ([objc_getAssociatedObject(container, &kStyling) boolValue]) return;
+    objc_setAssociatedObject(container, &kStyling, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // Styling must run during the live layout lease, including its synchronous restoration before
+    // a player snapshot. The coordinator ignores its own writes; only recursive styling is skipped.
+    @try { applyNowPlayingBarStyle(container); }
+    @finally { objc_setAssociatedObject(container, &kStyling, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
 }
 
 %hook _TtC18NowPlaying_BarImpl36NowPlayingBarContainerViewController

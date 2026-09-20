@@ -141,7 +141,10 @@
             for (NSUInteger i = 0; i < bar.items.count && dx < distance; i++) {
                 UITabBarItem *item = bar.items[i];
                 BOOL match = [view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:item.title];
-                if ([view isKindOfClass:UIImageView.class]) match |= ((UIImageView *)view).image == item.image || ((UIImageView *)view).image == item.selectedImage;
+                if ([view isKindOfClass:UIImageView.class]) {
+                    UIImage *image = ((UIImageView *)view).image;
+                    match |= image && (image == item.image || image == item.selectedImage);
+                }
                 if (match) { index = i; distance = dx; }
             }
         }

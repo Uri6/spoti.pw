@@ -15,6 +15,9 @@ targets:
       - path: ../../tweak/Sources/Redesigned/NowPlayingBar/LiveBarLayout.m
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarScrollDriver.m
       - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarHost.m
+      - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarCapabilities.m
+      - path: ../../tweak/Sources/Redesigned/Navbar/DynamicBarPolicy.m
+      - path: ../../tweak/Sources/Core/SGViewTree.m
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe
