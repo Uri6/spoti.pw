@@ -1,0 +1,44 @@
+name: DynamicTabBarProbe
+options:
+  deploymentTarget:
+    iOS: '26.0'
+settings:
+  base:
+    CODE_SIGNING_ALLOWED: NO
+    CLANG_ENABLE_OBJC_ARC: YES
+targets:
+  DynamicTabBarProbe:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe
+    info:
+      path: build/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: ProbeScene
+  DynamicTabBarProbeTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: DynamicTabBarProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  DynamicTabBarProbe:
+    build:
+      targets:
+        DynamicTabBarProbe: all
+    test:
+      targets: [DynamicTabBarProbeTests]
