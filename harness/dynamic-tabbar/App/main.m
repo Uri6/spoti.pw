@@ -99,7 +99,9 @@
         self.page.view.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.view addSubview:self.page.view];
         [self.page didMoveToParentViewController:self];
-        for (UIViewController *page in pages) [page setContentScrollView:self.page.tableView forEdge:NSDirectionalRectEdgeBottom];
+        // Both directions matter: bottom-only observation minimizes but did not expand again in
+        // the iOS 26.5 probe. Keep one authoritative scroll view for both edges.
+        for (UIViewController *page in pages) [page setContentScrollView:self.page.tableView forEdge:NSDirectionalRectEdgeAll];
     }
     [self addChildViewController:self.tabs];
     UIView *host = external ? [ProbePassthrough new] : [UIView new];

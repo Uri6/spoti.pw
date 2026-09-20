@@ -10,7 +10,9 @@ targets:
   DynamicTabBarProbe:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - path: App
+      - path: ../../tweak/Sources/Redesigned/NowPlayingBar/LiveBarLayout.m
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe
@@ -35,10 +37,20 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe.tests
         GENERATE_INFOPLIST_FILE: YES
+  DynamicTabBarLayoutTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [UnitTests]
+    dependencies:
+      - target: DynamicTabBarProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: pw.spoti.dynamic-tabbar-probe.layout-tests
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   DynamicTabBarProbe:
     build:
       targets:
         DynamicTabBarProbe: all
     test:
-      targets: [DynamicTabBarProbeTests]
+      targets: [DynamicTabBarProbeTests, DynamicTabBarLayoutTests]
