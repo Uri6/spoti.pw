@@ -1,5 +1,6 @@
 // Public-API feasibility probe, not a mock of Spotify's player or proof of Spotify integration.
 #import <UIKit/UIKit.h>
+#import "FixtureAudioPlayer.h"
 #import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarScrollDriver.h"
 #import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarHost.h"
 #import "../../../tweak/Sources/Redesigned/NowPlayingBar/LiveBarLayout.h"
@@ -82,13 +83,14 @@
 @property(nonatomic, strong) UIViewController *originalPlayerParent;
 @property(nonatomic, strong) UIViewController *originalPlayer;
 @property(nonatomic, strong) ProbeAccessory *livePlayer;
+@property(nonatomic, strong) FixtureAudioPlayer *constrainedPlayer;
 @property(nonatomic, strong) SGRLiveBarLayout *liveLayout;
 @property(nonatomic, copy) NSArray<UITabBarItem *> *items;
 @end
 @implementation ProbeRoot
 - (void)viewDidLoad {
     [super viewDidLoad];
-    BOOL external = [NSProcessInfo.processInfo.arguments containsObject:@"external"];
+    BOOL external = [NSProcessInfo.processInfo.arguments containsObject:@"external"] || [NSProcessInfo.processInfo.arguments containsObject:@"constrained"];
     self.page = [ProbePage new];
     if (external) { [self installProjectedPlayer]; return; }
     self.tabs = [UITabBarController new];
@@ -150,6 +152,14 @@
     [self.view addSubview:self.originalPlayerParent.view];
     [self.originalPlayerParent didMoveToParentViewController:self];
     self.originalPlayer = [UIViewController new];
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"constrained"]) {
+        [self.originalPlayerParent addChildViewController:self.originalPlayer];
+        self.constrainedPlayer = [[FixtureAudioPlayer alloc] initInParent:self.originalPlayerParent.view];
+        self.originalPlayer.view = self.constrainedPlayer.source;
+        ((ProbePassthrough *)self.originalPlayerParent.view).accessory = self.constrainedPlayer.source;
+        [self.originalPlayer didMoveToParentViewController:self.originalPlayerParent];
+        return;
+    }
     self.livePlayer = [ProbeAccessory new];
     self.livePlayer.externalEnvironment = @"regular";
     self.originalPlayer.view = self.livePlayer;
@@ -160,6 +170,14 @@
     [self.originalPlayer didMoveToParentViewController:self.originalPlayerParent];
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
+    if (self.constrainedPlayer) {
+        if (self.liveLayout.applying || !self.constrainedPlayer.source.window) return;
+        if (!self.liveLayout) self.liveLayout = [[SGRLiveBarLayout alloc] initWithSource:self.constrainedPlayer.source cardView:self.constrainedPlayer.card];
+        BOOL placed = [self.liveLayout placeCardInRect:rect ofView:view];
+        BOOL sameOwner = self.originalPlayer.parentViewController == self.originalPlayerParent && self.constrainedPlayer.source.superview == self.originalPlayerParent.view;
+        self.constrainedPlayer.status.accessibilityValue = placed && sameOwner ? (inlineLayout ? @"inline" : @"regular") : @"placement-failed";
+        return;
+    }
     if (!self.livePlayer.window) return;
     if (!self.liveLayout) self.liveLayout = [[SGRLiveBarLayout alloc] initWithSource:self.livePlayer cardView:self.livePlayer];
     self.livePlayer.externalEnvironment = inlineLayout ? @"inline" : @"regular";

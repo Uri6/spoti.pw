@@ -1,7 +1,7 @@
 #import <UIKit/UIKit.h>
 
 // A reversible placement of an existing live mini-player. It never reparents a view or controller,
-// changes constraints, scales controls, or copies a video surface. Call restore BEFORE Spotify's
+// scales controls, or copies a video surface. A validated audio constraint lease is restored BEFORE Spotify's
 // next layout/snapshot, then capture its new natural geometry if hosting is still eligible.
 @interface SGRLiveBarLayout : NSObject
 @property(nonatomic, readonly, getter=isApplying) BOOL applying;

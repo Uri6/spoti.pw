@@ -39,3 +39,21 @@ track information and add video or attachments; those are synthetic variations, 
 video or Jam sessions. `CoordinatorTests` uses these audio identities for interruption tests.
 These fixtures establish eligibility only; Spotify's own relayout and scrolling still require
 device testing. In particular, a 56-point stock card may fail the native accessory's shorter slot.
+
+## Constraint capture (2026-09-21, physical iPhone, r3)
+
+Sanitized roles, no media text, pointer values or device identifiers:
+
+- Source root: Auto Layout UIView, 402×56. Four required zero top/bottom/leading/trailing pins
+  to its original 402×56 parent; a required self-height of 56.
+- Bar controller view: four pins to source, with 8-point horizontal insets (386×56).
+- `SPTNowPlayingBar`: leading/trailing/bottom pinned to bar view, required self-height 56.
+- `now-playing-bar-content`: four zero pins to the card.
+- Artwork: nested wrapper containing the known ImageData ElementView; top/bottom relative to
+  content with 8-point padding. Width equals height at priority 999; measured 40×40.
+- Text/control row: begins at artwork trailing, ends 8 points before content trailing, vertically
+  contained in artwork bounds and centered. Controls measured 44 points wide, 40 high.
+
+The reported card stayed 386×56 for a native 360×48 slot. `FixtureAudioPlayer` reproduces the
+root/card/artwork constraints with generic UIKit views, labels and a real target-action button.
+It is a structural regression fixture, not the Spotify binary or a validation of other variants.

@@ -47,6 +47,7 @@ final class MinimizationTests: XCTestCase {
         app.terminate()
     }
 
+    func testCapturedAutoLayoutPlayerWithExternalScrollView() { exercise("constrained") }
     func testOwnedScrollView() { exercise("owned") }
     func testExternalScrollViewWithPreservedContainment() { exercise("external") }
 }

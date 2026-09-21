@@ -39,6 +39,7 @@ static BOOL enabled(void) {
 @property(nonatomic, strong) NSHashTable *transitions;
 @property(nonatomic) CGRect naturalCard;
 @property(nonatomic) BOOL updating;
+@property(nonatomic) BOOL refreshQueued;
 @property(nonatomic) BOOL keyboard;
 @property(nonatomic) BOOL failedPlacement;
 @property(nonatomic) CGFloat glassAlpha;
@@ -97,7 +98,7 @@ static BOOL enabled(void) {
     [self.player.viewIfLoaded setNeedsLayout];
 }
 - (void)refresh {
-    if (self.updating) return;
+    if (self.updating || self.layout.applying) return;
     if (!CGSizeEqualToSize(self.lastSize, self.window.bounds.size)) {
         self.lastSize = self.window.bounds.size;
         self.failedPlacement = NO;
@@ -165,7 +166,7 @@ static BOOL enabled(void) {
     if (self.select) self.select(source);
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
-    if (self.updating || host != self.host) return;
+    if (self.updating || self.layout.applying || host != self.host) return;
     SGRDynamicBarContext context = {SGRDynamicBarContentBlockers(self.player), rect.size.width, 240, rect.size.height};
     uint32_t blockers = SGRDynamicBarBlockers(context);
     if (blockers || ![self.layout placeCardInRect:rect ofView:view]) {
@@ -206,7 +207,7 @@ static SGRDynamicBarSession *session(UIWindow *window, BOOL create) {
 void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITabBar *mirror,
                            NSArray<UIView *> *sources, void (^select)(UIView *source)) {
     SGRDynamicBarSession *value = session(stockBar.window, YES);
-    if (!value || value.updating) return;
+    if (!value || value.updating || value.layout.applying) return;
     if (value.tabs != container || value.stockBar != stockBar || value.mirror != mirror) [value detach];
     value.tabs = container; value.stockBar = stockBar; value.mirror = mirror;
     value.sources = sources; value.select = select;
@@ -224,6 +225,29 @@ void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisu
     value.player = container; value.card = card; value.glass = glass;
     [value refresh];
 }
+// Async feed population does not necessarily relayout either bar. Coalesce relevant content-size
+// and attachment events; never observe contentOffset, replace a delegate, poll, or scan each frame.
+void SGRDynamicBarScrollChanged(UIScrollView *scroll) {
+    if (!NSThread.isMainThread || !enabled()) return;
+    for (SGRDynamicBarSession *value in sg_sessions.allObjects) {
+        if (value.updating || value.layout.applying || value.refreshQueued) continue;
+        UIViewController *selected = [value.tabs respondsToSelector:@selector(selectedViewController)] ? [(id)value.tabs selectedViewController] : nil;
+        if ([selected isKindOfClass:UINavigationController.class]) selected = ((UINavigationController *)selected).visibleViewController;
+        UIView *page = selected.viewIfLoaded;
+        BOOL ownerChanged = value.host && scroll == value.host.observedScrollView;
+        BOOL candidate = page && scroll.window == value.window && (scroll == page || [scroll isDescendantOfView:page]) &&
+            scroll.bounds.size.width >= page.bounds.size.width * 0.65 && scroll.bounds.size.height >= page.bounds.size.height * 0.45;
+        if (!ownerChanged && !candidate) continue;
+        value.refreshQueued = YES;
+        __weak SGRDynamicBarSession *weakValue = value;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SGRDynamicBarSession *live = weakValue;
+            live.refreshQueued = NO;
+            [live refresh];
+        });
+    }
+}
+
 void SGRDynamicBarBeginTransition(UIView *bar, id transition) {
     if (!transition) return;
     // Some animators do not populate their bar ivar until setup. Suspend existing hosts before

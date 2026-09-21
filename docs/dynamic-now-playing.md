@@ -10,7 +10,8 @@ Spotify continues to own the playback state, controls, gestures, decoder, contro
 navigation actions. The feature does not reconstruct Now Playing from the shared metadata cache.
 
 - `DynamicBarCoordinator` owns one presentation session per window. Existing player/tab-bar hooks
-  refresh it after Spotify's layouts. It releases its host before snapshot setup and when content,
+  refresh it after Spotify's layouts; coalesced scroll attachment/content-size events also refresh
+  feeds that become ready asynchronously. No scroll delegate or per-offset observer is replaced. It releases its host before snapshot setup and when content,
   visibility, accessibility or keyboard state makes compact presentation unsuitable.
 - `DynamicBarCapabilities` inspects existing, loaded controllers/views without loading more views.
   It requires visible audio identities and rejects observed video, attachment, Jam badge and hat
@@ -26,7 +27,10 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
 - `DynamicBarScrollDriver` observes the existing pan recognizer without replacing its delegate.
   An upward drag expands through the public `.never` behavior; the end of the gesture restores
   `.onScrollDown` before the next gesture begins. This was needed for repeatable cycles in the probe.
-- `LiveBarLayout` temporarily changes only the original player's root bounds and center. It checks
+- `LiveBarLayout` leases the original player's layout. `LiveBarConstraints` recognizes the captured
+  9.1.78 audio profile: four root edge pins, 56-point root/card heights, and artwork with 8-point
+  vertical padding. It temporarily replaces root placement constraints and adjusts card height and
+  padding, retaining the 40-point artwork/control row. Other frame-based layouts use bounds/center. It checks
   ancestor transforms/clipping, the actual card's post-layout frame, and control containment. It
   never reparents, scales or snapshots the player. Restoration only rewrites properties still owned
   by the lease. Spotify reclaiming the geometry suspends the adapter rather than causing a layout
@@ -54,7 +58,7 @@ Accessibility fallback observes Apple's documented status notifications and capa
 | --- | --- |
 | Ordinary audio | Attempts native compact hosting only when positive identities and measured layout fit. Its real controller/element identities were captured; live compact layout is not yet validated. |
 | Video, Jam badge, attachments, extra hat content | Restores the existing expanded bars when detected. Detection tested with synthetic trees, not real sessions. |
-| Unknown hierarchy, fixed/non-fitting card, clipping/transformed ancestor | Keeps the existing presentation; no guessed selectors or forced resizing of child constraints. |
+| Unknown hierarchy, fixed/non-fitting card, clipping/transformed ancestor | Keeps the existing presentation; no guessed selectors or edits to unrecognized constraint profiles. |
 | Keyboard, full player, transition, inactive app, hidden stock bar | Suspends presentation and restores owned geometry. Actual Spotify transition/cancellation timing remains unverified. |
 | Regular width, narrow layout, large accessibility text, VoiceOver, Switch Control, AssistiveTouch, Reduce Motion | Expanded fallback. |
 | Touch outside the original parent | Screen touches worked in the UIKit probe. XCTest AX hittability does not follow that out-of-parent geometry; accessibility support cannot be claimed for the compact view. |
@@ -121,4 +125,15 @@ Diagnostic revision r3 (`a3215b1`, the 41-test run above) adds a read-only secti
 preserves the last placement rejection, reports current visibility and scroll ownership, and lists
 layout constraints without label text. This avoids depending on transient syslog messages across
 process replacement. It is diagnostic work, not evidence that the remaining integration failure
-is fixed. The phone disconnected before this revision could be installed.
+is fixed. On 2026-09-21 r3 was installed and its read-only endpoint showed two failures:
+
+- Home became scrollable after the last bar layout, leaving cached blockers `0x810` despite an
+  eligible live tree. Switching tabs refreshed eligibility.
+- Placement then failed with an actual card of 386×56 in a native slot of 360×48. Root bounds
+  alone could not resize the Auto Layout card. The captured constraints are documented in the fixture.
+
+The next revision adds the narrow constraint lease and event-driven readiness refresh above.
+Regression coverage includes a captured constraint fixture, repeated width changes, restoration,
+foreign updates, reparenting, RTL, late Home population, scroll removal and unrelated scroll events.
+A third UI scenario exercises that constrained player through the real native accessory and scroll
+recognizer. Results and physical acceptance remain pending for this new revision.

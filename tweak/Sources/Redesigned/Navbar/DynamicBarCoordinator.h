@@ -7,6 +7,8 @@
 void SGRDynamicBarUpdateTabs(UIViewController *container, UIView *stockBar, UITabBar *mirror,
                              NSArray<UIView *> *sources, void (^select)(UIView *source));
 void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisualEffectView *glass);
+// Called only for scroll attachment and content-size changes, never per-scroll offset.
+void SGRDynamicBarScrollChanged(UIScrollView *scroll);
 void SGRDynamicBarBeginTransition(UIView *bar, id transition);
 void SGRDynamicBarEndTransition(id transition);
 void SGRDynamicBarPlayerVisibility(UIViewController *player, BOOL visible);

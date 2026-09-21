@@ -35,6 +35,13 @@ CGRect SGRNowPlayingArtworkFrameIn(UIView *host) {
 }
 
 static UIView *detectColoredCard(UIView *bar) {
+    // The color is deliberately stripped below. Prefer Spotify's observed stable card identity
+    // so a later layout or replacement does not depend on paint still being present.
+    __block UIView *identified = nil;
+    SGForEachView(bar, ^(UIView *v) {
+        if ([v.accessibilityIdentifier isEqualToString:@"SPTNowPlayingBar"]) identified = v;
+    });
+    if (identified) return identified;
     __block UIView *best = nil;
     __block CGFloat bestArea = 0;
     SGForEachView(bar, ^(UIView *v) {

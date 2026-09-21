@@ -189,4 +189,43 @@
     XCTAssertTrue(CGRectEqualToRect(self.player.view.frame, frame));
     XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
 }
+- (void)drainReadinessRefresh {
+    XCTestExpectation *done = [self expectationWithDescription:@"coalesced readiness"];
+    dispatch_async(dispatch_get_main_queue(), ^{ [done fulfill]; });
+    [self waitForExpectations:@[done] timeout:2];
+}
+- (void)testAsyncFeedBecomingScrollableAttachesWithoutAnotherBarLayout {
+    UIScrollView *scroll = (id)self.tabs.selectedViewController.view;
+    scroll.contentSize = CGSizeZero;
+    [self refresh];
+    [self assertRestored];
+    scroll.contentSize = CGSizeMake(scroll.bounds.size.width, 3000);
+    SGRDynamicBarScrollChanged(scroll);
+    SGRDynamicBarScrollChanged(scroll); // repeated changes in one run loop are coalesced
+    [self drainReadinessRefresh];
+    XCTAssertNotNil(self.host);
+    XCTAssertEqual(self.host.observedScrollView, scroll);
+}
+- (void)testDetachedScrollOwnerReleasesHostAfterAttachmentEvent {
+    UIScrollView *scroll = (id)self.tabs.selectedViewController.view;
+    [scroll removeFromSuperview];
+    SGRDynamicBarScrollChanged(scroll);
+    [self drainReadinessRefresh];
+    [self assertRestored];
+}
+- (void)testUnrelatedScrollEventsCannotRefreshTheSelectedPage {
+    UIScrollView *scroll = (id)self.tabs.selectedViewController.view;
+    scroll.contentSize = CGSizeZero;
+    [self refresh];
+    [self assertRestored];
+    scroll.contentSize = CGSizeMake(scroll.bounds.size.width, 3000);
+    UIScrollView *other = [[UIScrollView alloc] initWithFrame:self.tabs.view.bounds];
+    [self.tabs.view addSubview:other];
+    SGRDynamicBarScrollChanged(other);
+    [self drainReadinessRefresh];
+    XCTAssertNil(self.host);
+    SGRDynamicBarScrollChanged(scroll);
+    [self drainReadinessRefresh];
+    XCTAssertNotNil(self.host);
+}
 @end

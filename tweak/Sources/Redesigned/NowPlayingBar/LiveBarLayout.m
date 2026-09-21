@@ -1,4 +1,5 @@
 #import "LiveBarLayout.h"
+#import "LiveBarConstraints.h"
 #import <QuartzCore/QuartzCore.h>
 #include <math.h>
 
@@ -17,12 +18,17 @@ static BOOL usableRect(CGRect rect) {
     CGPoint _naturalCenter, _appliedCenter;
     BOOL _valid;
     BOOL _tracksCard;
+    SGRLiveBarConstraints *_constraints;
 }
 - (instancetype)initWithSource:(UIView *)source cardView:(UIView *)card {
     if ((self = [self initWithSource:source cardRect:[source convertRect:card.bounds fromView:card]])) {
         _tracksCard = YES;
         _cardView = card;
         _valid &= card && (card == source || [card isDescendantOfView:source]);
+        if (!source.translatesAutoresizingMaskIntoConstraints) {
+            _constraints = [[SGRLiveBarConstraints alloc] initWithSource:source card:card];
+            _valid &= _constraints != nil;
+        }
     }
     return self;
 }
@@ -68,14 +74,25 @@ static BOOL usableRect(CGRect rect) {
     CGPoint center = CGPointMake(local.origin.x - left + bounds.size.width / 2,
                                 local.origin.y - top + bounds.size.height / 2);
     _applying = YES;
-    source.bounds = _appliedBounds = bounds;
-    source.center = _appliedCenter = center;
     _placed = YES;
-    [source setNeedsLayout];
-    [source layoutIfNeeded];
+    BOOL constraintPlacement = YES;
+    if (_constraints) {
+        CGRect frame = CGRectMake(center.x - bounds.size.width / 2, center.y - bounds.size.height / 2, bounds.size.width, bounds.size.height);
+        constraintPlacement = [_constraints applyFrame:frame cardHeight:local.size.height];
+    } else {
+        source.bounds = bounds;
+        source.center = center;
+        [source setNeedsLayout];
+        [source layoutIfNeeded];
+    }
+    _appliedBounds = bounds;
+    _appliedCenter = center;
     _applying = NO;
     // A constraint owner may have reclaimed the root during layout. Do not fight it every frame.
-    BOOL retained = CGRectEqualToRect(source.bounds, bounds) && CGPointEqualToPoint(source.center, center);
+    BOOL retained = constraintPlacement && fabs(source.bounds.size.width - bounds.size.width) <= 0.5 &&
+        fabs(source.bounds.size.height - bounds.size.height) <= 0.5 &&
+        fabs(source.center.x - center.x) <= 0.5 && fabs(source.center.y - center.y) <= 0.5;
+    if (retained) { _appliedBounds = source.bounds; _appliedCenter = source.center; }
     if (!retained) _rejectionReason = @"Spotify reclaimed source geometry during layout";
     if (_tracksCard) {
         CGRect actual = [_cardView convertRect:_cardView.bounds toView:host];
@@ -112,7 +129,9 @@ static BOOL usableRect(CGRect rect) {
     _placed = NO;
     // Never overwrite geometry that Spotify has already replaced or apply coordinates in a new
     // parent. Each property is restored only while its last write is still ours.
-    if (source && source.superview == _parent) {
+    if (_constraints) {
+        [_constraints restore];
+    } else if (source && source.superview == _parent) {
         if (CGRectEqualToRect(source.bounds, _appliedBounds)) source.bounds = _naturalBounds;
         if (CGPointEqualToPoint(source.center, _appliedCenter)) source.center = _naturalCenter;
         [source setNeedsLayout];
@@ -121,7 +140,7 @@ static BOOL usableRect(CGRect rect) {
     _applying = NO;
 }
 - (BOOL)ownsCurrentGeometry {
-    return self.placed && self.source && _window && self.source.window == _window &&
+    return self.placed && (!_constraints || _constraints.ownsConstraints) && self.source && _window && self.source.window == _window &&
         self.source.superview == _parent && CGAffineTransformIsIdentity(self.source.transform) &&
         CGRectEqualToRect(self.source.bounds, _appliedBounds) && CGPointEqualToPoint(self.source.center, _appliedCenter);
 }
