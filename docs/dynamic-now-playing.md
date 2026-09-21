@@ -76,15 +76,17 @@ summaries/attachments, and preserves the test command's exit status. Full Theos 
 the result into the privately supplied Spotify 9.1.78 IPA; the app binary and recordings stay out of
 the public repository.
 
-Verified code revision: `a3215b12135ab6df2f6b2d94155bfafd96692f31`, 2026-09-20. The private development
-run `35526406897` completed successfully with **41 passed, 0 failed, 0 skipped** tests:
+Verified test revision: `b7b8941e44aabc38f33eb4d4f5788eb3b3449501`, 2026-09-21. Private run
+`35548171834` completed with **52 passed, 0 failed, 0 skipped**. The IPA was built by run
+`35547829963` from `b119fdac2f87aa675717435df36fb609e085ff0a`; the production `tweak/` sources
+are identical between these revisions. The follow-up changes only test coordinates and harness docs.
 
 | Check | Result |
 | --- | --- |
-| Live layout lease and fitting | 13 UIKit unit tests passed |
+| Live layout lease and fitting | 20 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
 | Content and scroll capability inspection | 18 UIKit unit tests passed, including the captured ElementView audio identities |
-| Coordinator interruption, restoration and read-only diagnostics | 8 UIKit unit tests passed |
-| Native-owned and externally-owned scrolling | 2 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
+| Coordinator interruption, readiness, restoration and read-only diagnostics | 11 UIKit unit tests passed |
+| Native-owned, externally-owned and constrained-player scrolling | 3 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
 | Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
 | Layer boundaries and patch whitespace | Passed |
 | Full Theos compile, package and IPA injection | Passed with the private Spotify 9.1.78 input |
@@ -121,7 +123,7 @@ background/foreground, rotation and banners. Check the diagnostic `dynamic bar: 
 bitmask against `DynamicBarPolicy.h` when the adapter declines to attach. Logs contain presentation
 reasons, not track titles or account information. Disable the setting and restart to roll back.
 
-Diagnostic revision r3 (`a3215b1`, the 41-test run above) adds a read-only section to the existing debug USB tree endpoint. It
+Diagnostic revision r3 (`a3215b1`, historical run `35526406897`, 41 passed) adds a read-only section to the existing debug USB tree endpoint. It
 preserves the last placement rejection, reports current visibility and scroll ownership, and lists
 layout constraints without label text. This avoids depending on transient syslog messages across
 process replacement. It is diagnostic work, not evidence that the remaining integration failure
@@ -136,4 +138,7 @@ The next revision adds the narrow constraint lease and event-driven readiness re
 Regression coverage includes a captured constraint fixture, repeated width changes, restoration,
 foreign updates, reparenting, RTL, late Home population, scroll removal and unrelated scroll events.
 A third UI scenario exercises that constrained player through the real native accessory and scroll
-recognizer. Results and physical acceptance remain pending for this new revision.
+recognizer. All 52 tests passed in the follow-up run listed above. The first 52-test attempt passed all three
+UI scenarios but failed a unit hit test that supplied a UIWindow instead of the production host
+view coordinate space. That assertion was corrected and rerun without changing the installed code.
+Physical acceptance remains pending for this revision.
