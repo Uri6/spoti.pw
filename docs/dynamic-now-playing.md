@@ -35,12 +35,12 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
   never reparents, scales or snapshots the player. Restoration only rewrites properties still owned
   by the lease. Spotify reclaiming the geometry suspends the adapter rather than causing a layout
   contest on every pass.
-- The video adapter preserves the same `SPTVideoSurfaceImpl`, its layer and its parent. A guarded
-  profile leases fixed dimensions of the video view and preserves its measured aspect. Audio/video
+- The video adapter preserves the same `SPTVideoSurfaceImpl`, its layer and its parent. The captured
+  surface aspect constraint remains untouched; the existing graph resizes video when card height changes. Audio/video
   attachment, detachment and rectangle callbacks release the lease before Spotify handles the change,
   then refresh after a natural layout pass. Nested callbacks hold separate suspension tokens. The
-  [video fixture](../harness/dynamic-tabbar/fixtures/spotify-9.1.78-video.md) distinguishes measured
-  structure from the dimensions still awaiting a deeper device capture.
+  [video fixture](../harness/dynamic-tabbar/fixtures/spotify-9.1.78-video.md) records the deeper
+  device capture and the r6 profile rejection that led to this constraint model.
 
 The native accessory supplies the glass and geometry. A passthrough host returns the original
 control from hit testing, including when its card extends outside its original parent's bounds.
@@ -168,3 +168,11 @@ The video candidate adds landscape/portrait aspect fixtures, surface/layer/paren
 external dimension replacement and surface detachment, positive video eligibility, nested lifecycle
 suspension, and a fourth native gesture UI scenario. All 64 tests passed in the r6 run above; real video playback and audio/video switching still need
 physical verification. The fixture uses a generic colored view, not an actual decoder.
+
+### r6 physical video diagnosis
+
+r6 reached the physical iPhone and supplied the deeper read-only tree while video played on Home.
+The classifier admitted video (`content-blockers=0`), but the adapter rejected its constraint profile
+(`host=0`, `failed-placement=1`). The actual required aspect constraint belongs to the live surface,
+not the enclosing video controller view. r7 replaces the inferred dimension fixture with that
+captured ownership and preserves the surface's aspect constraint unchanged. r7 validation is pending.

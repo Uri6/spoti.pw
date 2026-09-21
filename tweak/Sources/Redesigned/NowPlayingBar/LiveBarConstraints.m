@@ -26,7 +26,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     NSArray<NSNumber *> *_original, *_written, *_positions;
     BOOL _active;
     CGFloat _parentHeight, _videoAspect;
-    NSArray<NSNumber *> *_dimensions;
+    NSLayoutConstraint *_surfaceAspect;
 }
 - (instancetype)initWithSource:(UIView *)source card:(UIView *)card {
     if (!(self = [super init])) return nil;
@@ -85,46 +85,39 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     }
     if (!art) return nil;
     NSMutableArray *edited = [NSMutableArray arrayWithObject:cardHeight];
-    NSMutableArray *dimensions = [NSMutableArray arrayWithObject:@0]; // card height
     if (video) {
-        // Captured layout: content > wrapper > media > BarVideoVC.view > SPTVideoSurfaceImpl.
-        // Keep that live surface in place. Only fixed dimensions matching its natural measured
-        // size are leased; aspect constraints remain unchanged, including their priorities.
+        // Captured on the r6 device: the controller view has only edge pins. The surface
+        // owns width == height * videoAspect at required priority. Preserve that constraint;
+        // changing the card height lets the original graph compute the live surface's width.
         UIView *videoView = surface.superview;
         if (videoView.superview != art || fabs(art.bounds.size.height - 56) > 0.5 ||
             fabs(videoView.bounds.size.height - 56) > 0.5) return nil;
-        _videoAspect = videoView.bounds.size.width / videoView.bounds.size.height;
+        _videoAspect = surface.bounds.size.width / surface.bounds.size.height;
         if (!isfinite(_videoAspect) || _videoAspect < 0.5 || _videoAspect > 2.4) return nil;
-        BOOL sized = NO;
-        for (NSLayoutConstraint *c in videoView.constraints) {
-            if (!c.active || c.firstItem != videoView ||
-                (c.firstAttribute != NSLayoutAttributeWidth && c.firstAttribute != NSLayoutAttributeHeight)) continue;
-            if (!c.secondItem) {
-                CGFloat natural = c.firstAttribute == NSLayoutAttributeWidth ? videoView.bounds.size.width : 56;
-                if (!equality(c) || fabs(c.constant - natural) > 0.5) return nil;
-                [edited addObject:c];
-                [dimensions addObject:c.firstAttribute == NSLayoutAttributeWidth ? @2 : @0];
-                sized = YES;
-            } else if (c.secondItem == videoView && c.firstAttribute != c.secondAttribute &&
-                       c.relation == NSLayoutRelationEqual && c.constant == 0) {
-                CGFloat ratio = c.firstAttribute == NSLayoutAttributeWidth ? _videoAspect : 1 / _videoAspect;
-                if (fabs(c.multiplier - ratio) > 0.01) return nil;
-                sized = YES;
+        for (UIView *owner in @[videoView, surface]) {
+            for (NSLayoutConstraint *c in owner.constraints) {
+                if (!c.active || c.firstItem != owner ||
+                    (c.firstAttribute != NSLayoutAttributeWidth && c.firstAttribute != NSLayoutAttributeHeight)) continue;
+                if (!c.secondItem) return nil; // no speculative fixed-dimension override
+                if (c.secondItem != owner) continue;
+                if (owner != surface || _surfaceAspect || c.firstAttribute != NSLayoutAttributeWidth ||
+                    c.secondAttribute != NSLayoutAttributeHeight || c.relation != NSLayoutRelationEqual ||
+                    c.priority != UILayoutPriorityRequired || c.constant != 0 ||
+                    fabs(c.multiplier - _videoAspect) > 0.01) return nil;
+                _surfaceAspect = c;
             }
         }
-        if (!sized) return nil;
+        if (!_surfaceAspect) return nil;
         _videoView = videoView;
         _videoSurface = surface;
     } else {
         [edited addObjectsFromArray:@[top, bottom]];
-        [dimensions addObjectsFromArray:@[@1, @1]]; // artwork padding
     }
     _parentHeight = parent.bounds.size.height;
     _source = source; _parent = parent; _card = card; _content = content; _art = art;
     [pins addObject:sourceHeight];
     _released = pins;
     _edited = edited;
-    _dimensions = dimensions;
     NSMutableArray *original = [NSMutableArray array];
     for (NSLayoutConstraint *c in edited) [original addObject:@(c.constant)];
     _original = original;
@@ -143,6 +136,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
         ![_art isDescendantOfView:_content] || ![_content isDescendantOfView:_card]) return NO;
     if (_videoAspect) {
         if (!_videoSurface || !_videoView || _videoSurface.superview != _videoView || _videoView.superview != _art) return NO;
+        if (!_surfaceAspect.active || _surfaceAspect.constant != 0 || _surfaceAspect.priority != UILayoutPriorityRequired) return NO;
         CGFloat height = _videoSurface.bounds.size.height;
         if (height <= 0 || fabs(height - _card.bounds.size.height) > 0.5 ||
             fabs(_videoSurface.bounds.size.width / height - _videoAspect) > 0.01) return NO;
@@ -167,12 +161,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
         _active = YES;
     }
     // Audio keeps its 40 pt artwork. Video keeps its original aspect inside the 48 pt accessory.
-    NSMutableArray *written = [NSMutableArray array];
-    for (NSNumber *dimension in _dimensions) {
-        CGFloat constant = dimension.integerValue == 1 ? (height - 40) / 2 : dimension.integerValue == 2 ? height * _videoAspect : height;
-        [written addObject:@(constant)];
-    }
-    _written = written;
+    _written = _videoAspect ? @[@(height)] : @[@(height), @((height - 40) / 2), @((height - 40) / 2)];
     for (NSUInteger i = 0; i < _edited.count; i++) _edited[i].constant = _written[i].doubleValue;
     _positions = @[@(frame.origin.x - _parent.bounds.origin.x), @(frame.origin.y - _parent.bounds.origin.y), @(frame.size.width), @(frame.size.height), @(_parentHeight)];
     for (NSUInteger i = 0; i < _placement.count; i++) _placement[i].constant = _positions[i].doubleValue;

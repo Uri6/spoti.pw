@@ -51,14 +51,14 @@ static NSArray *pins(UIView *view, UIView *parent) {
     if (ratio > 0) {
         UIView *videoView = addView(_artwork);
         [NSLayoutConstraint activateConstraints:pins(videoView, _artwork)];
-        _videoHeight = [videoView.heightAnchor constraintEqualToConstant:56];
-        [NSLayoutConstraint activateConstraints:@[_videoHeight, [videoView.widthAnchor constraintEqualToConstant:56 * ratio]]];
         Class cls = objc_lookUpClass("SPTVideoSurfaceImpl");
         if (!cls) { cls = objc_allocateClassPair(UIView.class, "SPTVideoSurfaceImpl", 0); objc_registerClassPair(cls); }
         _videoSurface = [cls new];
         _videoSurface.translatesAutoresizingMaskIntoConstraints = NO;
         [videoView addSubview:_videoSurface];
         [NSLayoutConstraint activateConstraints:pins(_videoSurface, videoView)];
+        _videoAspect = [_videoSurface.widthAnchor constraintEqualToAnchor:_videoSurface.heightAnchor multiplier:ratio];
+        _videoAspect.active = YES;
         _videoSurface.backgroundColor = UIColor.systemTealColor;
     } else {
         const char *name = "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__";

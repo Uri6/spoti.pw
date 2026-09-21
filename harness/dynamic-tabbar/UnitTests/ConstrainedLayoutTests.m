@@ -152,21 +152,38 @@
         [self.layout restore];
         XCTAssertEqualWithAccuracy(surface.bounds.size.height, 56, 0.5);
         XCTAssertEqualWithAccuracy(surface.bounds.size.width, 56 * ratio, 0.5);
-        XCTAssertEqual(self.fixture.videoHeight.constant, 56);
+        XCTAssertTrue(self.fixture.videoAspect.active);
     }
 }
-- (void)testExternalVideoSizeChangeRevokesLeaseWithoutOverwritingIt {
+- (void)testExternalVideoAspectReplacementRevokesLeaseWithoutOverwritingIt {
     [self installVideo:4.0/3];
     XCTAssertTrue([self place:360]);
-    self.fixture.videoHeight.constant = 60;
+    self.fixture.videoAspect.active = NO;
+    NSLayoutConstraint *replacement = [self.fixture.videoSurface.widthAnchor constraintEqualToAnchor:self.fixture.videoSurface.heightAnchor multiplier:16.0/9];
+    replacement.active = YES;
     XCTAssertFalse(self.layout.ownsCurrentGeometry);
     [self.layout restore];
-    XCTAssertEqual(self.fixture.videoHeight.constant, 60);
+    XCTAssertFalse(self.fixture.videoAspect.active);
+    XCTAssertTrue(replacement.active);
+    XCTAssertEqualWithAccuracy(self.fixture.videoSurface.bounds.size.width / self.fixture.videoSurface.bounds.size.height, 16.0/9, 0.01);
+    // A media-change hook releases before Spotify mutates. Reacquiring sees the new natural ratio.
+    self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.fixture.source cardView:self.fixture.card];
+    XCTAssertTrue([self place:260], @"%@", self.layout.rejectionReason);
+    XCTAssertEqualWithAccuracy(self.fixture.videoSurface.bounds.size.width / self.fixture.videoSurface.bounds.size.height, 16.0/9, 0.01);
+}
+- (void)testMissingVideoAspectRejectsWithoutMutatingTheNaturalCard {
+    [self installVideo:4.0/3];
+    self.fixture.videoAspect.active = NO;
+    [self.parent layoutIfNeeded];
+    self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.fixture.source cardView:self.fixture.card];
+    XCTAssertFalse([self place:360]);
+    XCTAssertEqual(self.fixture.cardHeight.constant, 56);
+    XCTAssertFalse(self.fixture.videoAspect.active);
 }
 - (void)testUnsupportedVideoAspectDoesNotMutateTheSurface {
     [self installVideo:4];
     XCTAssertFalse([self place:260]);
-    XCTAssertEqual(self.fixture.videoHeight.constant, 56);
+    XCTAssertTrue(self.fixture.videoAspect.active);
     XCTAssertEqualWithAccuracy(self.fixture.videoSurface.bounds.size.width, 224, 0.5);
 }
 - (void)testVideoSurfaceDetachmentRevokesTheLease {
@@ -175,7 +192,7 @@
     [self.fixture.videoSurface removeFromSuperview];
     XCTAssertFalse(self.layout.ownsCurrentGeometry);
     [self.layout restore];
-    XCTAssertEqual(self.fixture.videoHeight.constant, 56);
+    XCTAssertTrue(self.fixture.videoAspect.active);
     XCTAssertNil(self.fixture.videoSurface.superview);
 }
 @end

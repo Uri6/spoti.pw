@@ -5,8 +5,8 @@ scroll view designated by `setContentScrollView:forEdge:`. Both use the producti
 In the external case, the production chrome host positions the original player view while keeping
 its original controller and view parents. Its hit-test bridge delivers touches to the original
 button. A third `constrained` scenario uses the root/card/artwork constraint graph captured from
-Spotify 9.1.78 and the production constraint lease through the same native accessory. The `video` scenario adds a synthetic live-surface layout with the captured nesting and guarded
-fixed dimensions described in the video fixture. No Spotify binary or private UIKit selectors are involved.
+Spotify 9.1.78 and the production constraint lease through the same native accessory. The `video` scenario adds a synthetic live-surface layout with the captured nesting and surface-owned
+aspect constraint described in the video fixture. No Spotify binary or private UIKit selectors are involved.
 
 The UI tests send actual drag gestures, assert the accessory's inline/regular trait, test its action
 while inline, repeat three cycles, select a different tab, and retain screenshots. The external
