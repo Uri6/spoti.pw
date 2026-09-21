@@ -25,6 +25,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     NSArray<NSLayoutConstraint *> *_released, *_placement, *_edited;
     NSArray<NSNumber *> *_original, *_written, *_positions;
     BOOL _active;
+    CGFloat _parentHeight;
 }
 - (instancetype)initWithSource:(UIView *)source card:(UIView *)card {
     if (!(self = [super init])) return nil;
@@ -32,7 +33,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     if (!parent || source.translatesAutoresizingMaskIntoConstraints ||
         ![card.accessibilityIdentifier isEqualToString:@"SPTNowPlayingBar"] ||
         card.superview.superview != source || fabs(source.bounds.size.height - 56) > 0.5 ||
-        fabs(card.bounds.size.height - 56) > 0.5) return nil;
+        fabs(card.bounds.size.height - 56) > 0.5 || fabs(parent.bounds.size.height - 56) > 0.5) return nil;
     NSLayoutConstraint *sourceHeight = heightConstraint(source), *cardHeight = heightConstraint(card);
     if (!sourceHeight || !cardHeight) return nil;
     for (NSLayoutConstraint *c in source.constraints) {
@@ -76,6 +77,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
         }
     }
     if (!art) return nil;
+    _parentHeight = parent.bounds.size.height;
     _source = source; _parent = parent; _card = card; _content = content; _art = art;
     [pins addObject:sourceHeight];
     _released = pins;
@@ -84,7 +86,11 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     _placement = @[[source.leftAnchor constraintEqualToAnchor:parent.leftAnchor],
                    [source.topAnchor constraintEqualToAnchor:parent.topAnchor],
                    [source.widthAnchor constraintEqualToConstant:source.bounds.size.width],
-                   [source.heightAnchor constraintEqualToConstant:source.bounds.size.height]];
+                   [source.heightAnchor constraintEqualToConstant:source.bounds.size.height],
+                   // The original root height plus edge pins also size the enclosing Spotify bar.
+                   // Releasing those pins must not remove that sizing contribution or move the
+                   // entire overlay/page inset while we convert accessory coordinates.
+                   [parent.heightAnchor constraintEqualToConstant:_parentHeight]];
     return self;
 }
 - (BOOL)ownsConstraints {
@@ -112,7 +118,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     // Keep the measured 40 pt artwork and control row at its natural size in a 48 pt accessory.
     _written = @[@(height), @((height - 40) / 2), @((height - 40) / 2)];
     for (NSUInteger i = 0; i < _edited.count; i++) _edited[i].constant = _written[i].doubleValue;
-    _positions = @[@(frame.origin.x - _parent.bounds.origin.x), @(frame.origin.y - _parent.bounds.origin.y), @(frame.size.width), @(frame.size.height)];
+    _positions = @[@(frame.origin.x - _parent.bounds.origin.x), @(frame.origin.y - _parent.bounds.origin.y), @(frame.size.width), @(frame.size.height), @(_parentHeight)];
     for (NSUInteger i = 0; i < _placement.count; i++) _placement[i].constant = _positions[i].doubleValue;
     [NSLayoutConstraint activateConstraints:_placement];
     [_parent setNeedsLayout];

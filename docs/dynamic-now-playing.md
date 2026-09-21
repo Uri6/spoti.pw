@@ -141,4 +141,9 @@ A third UI scenario exercises that constrained player through the real native ac
 recognizer. All 52 tests passed in the follow-up run listed above. The first 52-test attempt passed all three
 UI scenarios but failed a unit hit test that supplied a UIWindow instead of the production host
 view coordinate space. That assertion was corrected and rerun without changing the installed code.
-Physical acceptance remains pending for this revision.
+r4 was installed successfully, but the device still fell back. The new report showed the correct
+360×48 card size at y=-332.5 relative to its slot. The original source height/pins also supplied
+the enclosing Auto Layout bar's height; releasing them removed that sizing contribution. The next
+revision holds the original parent height during the lease, and tests both ambiguous layout and
+window position with a parent sized by its child instead of a fixed-frame parent. Physical
+acceptance remains pending.

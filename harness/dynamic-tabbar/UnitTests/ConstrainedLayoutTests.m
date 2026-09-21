@@ -99,4 +99,32 @@
     [self.layout restore];
     XCTAssertEqualWithAccuracy(self.fixture.card.bounds.size.width, 386, 0.5);
 }
+- (void)testParentSizedByOriginalPlayerRetainsItsHeightAndWindowPosition {
+    // Spotify's parent is Auto Layout, with its height supplied only by the source's edge pins
+    // and 56 pt height. A fixed-frame parent misses the sizing contribution removed by a lease.
+    self.parent.translatesAutoresizingMaskIntoConstraints = NO;
+    UIView *root = self.window.rootViewController.view;
+    [NSLayoutConstraint activateConstraints:@[[self.parent.leadingAnchor constraintEqualToAnchor:root.leadingAnchor],
+        [self.parent.trailingAnchor constraintEqualToAnchor:root.trailingAnchor],
+        [self.parent.bottomAnchor constraintEqualToAnchor:root.bottomAnchor constant:-91]]];
+    [root layoutIfNeeded];
+    CGRect parentFrame = self.parent.frame;
+    XCTAssertFalse(self.parent.hasAmbiguousLayout);
+    self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.fixture.source cardView:self.fixture.card];
+    for (NSUInteger i = 0; i < 3; i++) {
+        XCTAssertTrue([self place:i % 2 ? 260 : 360], @"%@", self.layout.rejectionReason);
+        [root setNeedsLayout];
+        [root layoutIfNeeded];
+        XCTAssertFalse(self.parent.hasAmbiguousLayout);
+        XCTAssertTrue(CGRectEqualToRect(self.parent.frame, parentFrame));
+        XCTAssertTrue(self.layout.ownsCurrentGeometry);
+        CGRect card = [self.fixture.card convertRect:self.fixture.card.bounds toView:root];
+        XCTAssertEqualWithAccuracy(card.origin.y, 250, 0.5);
+    }
+    [self.layout restore];
+    [root layoutIfNeeded];
+    XCTAssertFalse(self.parent.hasAmbiguousLayout);
+    XCTAssertTrue(CGRectEqualToRect(self.parent.frame, parentFrame));
+    XCTAssertEqualWithAccuracy(self.fixture.card.bounds.size.height, 56, 0.5);
+}
 @end

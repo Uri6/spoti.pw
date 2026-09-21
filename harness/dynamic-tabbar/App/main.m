@@ -154,7 +154,13 @@
     self.originalPlayer = [UIViewController new];
     if ([NSProcessInfo.processInfo.arguments containsObject:@"constrained"]) {
         [self.originalPlayerParent addChildViewController:self.originalPlayer];
-        self.constrainedPlayer = [[FixtureAudioPlayer alloc] initInParent:self.originalPlayerParent.view];
+        UIView *parent = self.originalPlayerParent.view;
+        parent.translatesAutoresizingMaskIntoConstraints = NO;
+        [NSLayoutConstraint activateConstraints:@[[parent.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+            [parent.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+            [parent.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-91]]];
+        self.constrainedPlayer = [[FixtureAudioPlayer alloc] initInParent:parent];
+        [self.view layoutIfNeeded];
         self.originalPlayer.view = self.constrainedPlayer.source;
         ((ProbePassthrough *)self.originalPlayerParent.view).accessory = self.constrainedPlayer.source;
         [self.originalPlayer didMoveToParentViewController:self.originalPlayerParent];
