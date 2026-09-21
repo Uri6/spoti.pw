@@ -5,8 +5,8 @@ static void (*originalWithoutAnimation)(id, SEL, void (^)(void));
 static __thread NSUInteger expansionDepth;
 static NSUInteger wrapperCount;
 
-// UIKit 27 wraps a minimize-policy reset in +performWithoutAnimation:. Preserve the animation
-// context only for the synchronous policy write that expands our own native chrome. Every other
+// Preserve the animation context if UIKit wraps the minimize-policy reset in
+// +performWithoutAnimation:, only while synchronously expanding our own native chrome. Every other
 // invocation, including those on other threads, follows the original implementation unchanged.
 static void withoutAnimation(id receiver, SEL selector, void (^actions)(void)) {
     if (expansionDepth && NSThread.isMainThread && actions) {

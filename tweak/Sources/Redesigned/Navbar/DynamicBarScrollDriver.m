@@ -39,7 +39,7 @@
         self.tabController.tabBarMinimizeBehavior = policy;
     }
 }
-// Keep the scrolling policy intact. A short reverse drag needs an explicit native expansion;
+// A short reverse drag needs an explicit expansion. Re-arm minimization after the gesture;
 // UIKit's automatic reversal otherwise waits until the page reaches its leading edge.
 - (void)recordExpansionIntent {
     if (!self.diagnosticEvent || _diagnosticLink) return;
@@ -52,6 +52,7 @@
     [_diagnosticLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
+    if (@available(iOS 26.0, *)) {} else return;
     UIScrollView *scroll = self.scrollView;
     if (!scroll || pan != scroll.panGestureRecognizer) return;
     CGFloat top = -scroll.adjustedContentInset.top;
