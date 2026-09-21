@@ -277,3 +277,17 @@ keeps the expansion policy until gesture end, or until a different scroll owner 
 pan target. The regression test repeats eligibility and owner updates during an expansion request
 and checks that only a real owner change re-arms minimization. Local Catalyst compilation with an
 iOS 16.1 deployment floor also validates availability guards; this does not replace the iPhone build.
+
+
+### Development checkpoint and stock-release restoration
+
+At the user's request, development is paused after feature commit
+`59f353a24f6908abedca7ca92422899489fdf6ec`. All source, regression tests and development
+notes remain committed on `feat/dynamic-now-playing-tabbar`. The validation distinction above
+remains: 72 tests passed for `0bc1dba`; the final eligibility-refresh regression has not run in CI.
+
+The physical phone was returned to upstream **v0.21.0** using the maintainer's released tweak
+binary, with experimental dynamic-bar code and FLEX absent. Its compiled support components use
+unchanged upstream Live Activity/App Groups sources. Sideloadly reported **Done. 100%** for the
+verified stock-release package. This installation is separate from the experimental branch and
+does not constitute acceptance of the unfinished feature.
