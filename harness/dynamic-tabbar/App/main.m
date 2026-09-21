@@ -92,7 +92,7 @@
 @implementation ProbeRoot
 - (void)viewDidLoad {
     [super viewDidLoad];
-    BOOL external = [NSProcessInfo.processInfo.arguments containsObject:@"external"] || [NSProcessInfo.processInfo.arguments containsObject:@"constrained"];
+    BOOL external = [NSProcessInfo.processInfo.arguments containsObject:@"external"] || [NSProcessInfo.processInfo.arguments containsObject:@"constrained"] || [NSProcessInfo.processInfo.arguments containsObject:@"video"];
     self.page = [ProbePage new];
     if (external) { [self installProjectedPlayer]; return; }
     self.tabs = [UITabBarController new];
@@ -158,14 +158,14 @@
     [self.view addSubview:self.originalPlayerParent.view];
     [self.originalPlayerParent didMoveToParentViewController:self];
     self.originalPlayer = [UIViewController new];
-    if ([NSProcessInfo.processInfo.arguments containsObject:@"constrained"]) {
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"constrained"] || [NSProcessInfo.processInfo.arguments containsObject:@"video"]) {
         [self.originalPlayerParent addChildViewController:self.originalPlayer];
         UIView *parent = self.originalPlayerParent.view;
         parent.translatesAutoresizingMaskIntoConstraints = NO;
         [NSLayoutConstraint activateConstraints:@[[parent.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
             [parent.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
             [parent.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor constant:-91]]];
-        self.constrainedPlayer = [[FixtureAudioPlayer alloc] initInParent:parent];
+        self.constrainedPlayer = [[FixtureAudioPlayer alloc] initInParent:parent videoAspectRatio:[NSProcessInfo.processInfo.arguments containsObject:@"video"] ? 16.0/9 : 0];
         [self.view layoutIfNeeded];
         self.originalPlayer.view = self.constrainedPlayer.source;
         ((ProbePassthrough *)self.originalPlayerParent.view).accessory = self.constrainedPlayer.source;

@@ -5,7 +5,8 @@ scroll view designated by `setContentScrollView:forEdge:`. Both use the producti
 In the external case, the production chrome host positions the original player view while keeping
 its original controller and view parents. Its hit-test bridge delivers touches to the original
 button. A third `constrained` scenario uses the root/card/artwork constraint graph captured from
-Spotify 9.1.78 and the production constraint lease through the same native accessory. No Spotify binary or private UIKit selectors are involved.
+Spotify 9.1.78 and the production constraint lease through the same native accessory. The `video` scenario adds a synthetic live-surface layout with the captured nesting and guarded
+fixed dimensions described in the video fixture. No Spotify binary or private UIKit selectors are involved.
 
 The UI tests send actual drag gestures, assert the accessory's inline/regular trait, test its action
 while inline, repeat three cycles, select a different tab, and retain screenshots. The external
@@ -18,10 +19,12 @@ Hosted unit tests exercise the production layout lease, content/scroll classifie
 coordinator. The [ordinary-audio fixture](fixtures/spotify-9.1.78-audio.md) reproduces identities and
 nesting observed on a physical device; the constrained fixture also reproduces its measured
 layout relationships with synthetic content. It does not reproduce every private Spotify subview. Other controller names
-correspond to binary metadata. The fixtures cover video/extra-content rejection, ambiguous/short/horizontal
+correspond to binary metadata. The fixtures cover positive video admission, unknown-video/extra-content rejection, ambiguous/short/horizontal
 scroll views, geometry replacement, fixed cards, restoration, keyboard, player appearance and
 transition setup before the animator supplies its bar, late feed population, constraint restoration,
-external height changes, reparenting and right-to-left geometry.
+external height changes, reparenting and right-to-left geometry. Video tests retain the same surface,
+parent and layer across 4:3, 16:9 and 9:16 layouts, and cover nested media callbacks. The two
+constrained UI scenarios also require multiple aligned presentation-layer frames during expansion.
 
 Generate with `xcodegen generate --spec project.yml`, then run the `DynamicTabBarProbe` test scheme on
 an iOS 26+ simulator. The private development workflow selects an available runtime and saves results.

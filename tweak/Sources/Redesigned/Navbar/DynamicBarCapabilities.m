@@ -22,7 +22,8 @@ static BOOL hasIdentity(id object, const char *runtimeName, NSString *displayNam
 // Do not use playback-URI heuristics: video/Jam can change without a new URI.
 uint32_t SGRDynamicBarContentBlockers(UIViewController *root) {
     if (!root) return SGRDynamicBarUnknownContent;
-    BOOL cover = NO, content = NO;
+    BOOL cover = NO, content = NO, video = NO;
+    NSMutableArray<UIView *> *videoViews = [NSMutableArray array];
     uint32_t reasons = 0;
     NSMutableArray<UIViewController *> *pending = [NSMutableArray arrayWithObject:root];
     while (pending.count) {
@@ -32,11 +33,14 @@ uint32_t SGRDynamicBarContentBlockers(UIViewController *root) {
         NSString *name = NSStringFromClass(vc.class);
         cover |= hasIdentity(vc, "_TtC18NowPlaying_BarImpl25BarCoverArtViewController", @"NowPlaying_BarImpl.BarCoverArtViewController");
         content |= hasIdentity(vc, "_TtC18NowPlaying_BarImpl35ContentViewControllerImplementation", @"NowPlaying_BarImpl.ContentViewControllerImplementation");
-        if (hasIdentity(vc, "_TtC18NowPlaying_BarImpl22BarVideoViewController", @"NowPlaying_BarImpl.BarVideoViewController")) reasons |= SGRDynamicBarVideo;
+        if (hasIdentity(vc, "_TtC18NowPlaying_BarImpl22BarVideoViewController", @"NowPlaying_BarImpl.BarVideoViewController")) {
+            video = YES;
+            [videoViews addObject:vc.viewIfLoaded];
+        }
         if ([name containsString:@"AttachmentController"]) reasons |= SGRDynamicBarExtraContent;
         [pending addObjectsFromArray:vc.childViewControllers];
     }
-    __block BOOL extra = NO, elementAudio = NO;
+    __block BOOL extra = NO, elementAudio = NO, elementVideo = NO;
     SGForEachView(root.viewIfLoaded, ^(UIView *view) {
         if (!SGRDynamicBarViewVisible(view)) return;
         NSString *name = NSStringFromClass(view.class);
@@ -45,15 +49,20 @@ uint32_t SGRDynamicBarContentBlockers(UIViewController *root) {
         if (![view.accessibilityIdentifier isEqualToString:@"SPTNowPlayingBar"]) return;
         // Both positive elements must be visible in this same stock card. An arbitrary image,
         // label, or stale element on another page must not make an unknown card eligible.
-        __block BOOL artwork = NO, trackInfo = NO;
+        __block BOOL artwork = NO, trackInfo = NO, surface = NO;
         SGForEachView(view, ^(UIView *child) {
             if (!SGRDynamicBarViewVisible(child)) return;
+            if (hasIdentity(child, "SPTVideoSurfaceImpl", nil)) {
+                for (UIView *owner in videoViews) if ([child isDescendantOfView:owner]) { surface = YES; break; }
+            }
             artwork |= hasIdentity(child, "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__", nil);
             trackInfo |= hasIdentity(child, "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI24BarTrackInfoElementPropsP_P__", nil);
         });
         elementAudio |= artwork && trackInfo;
+        elementVideo |= surface && trackInfo;
     });
-    if (!content || (!cover && !elementAudio)) reasons |= SGRDynamicBarUnknownContent;
+    if (video && !elementVideo) reasons |= SGRDynamicBarVideo;
+    if (!content || (video ? !elementVideo : (!cover && !elementAudio))) reasons |= SGRDynamicBarUnknownContent;
     return reasons | (extra ? SGRDynamicBarExtraContent : 0);
 }
 

@@ -16,7 +16,8 @@ static NSArray *pins(UIView *view, UIView *parent) {
 @implementation FixtureAudioPlayer {
     NSUInteger _presses;
 }
-- (instancetype)initInParent:(UIView *)parent {
+- (instancetype)initInParent:(UIView *)parent { return [self initInParent:parent videoAspectRatio:0]; }
+- (instancetype)initInParent:(UIView *)parent videoAspectRatio:(CGFloat)ratio {
     if (!(self = [super init])) return nil;
     _source = addView(parent);
     _rootPins = pins(_source, parent);
@@ -41,20 +42,34 @@ static NSArray *pins(UIView *view, UIView *parent) {
     UIView *artWrapper = addView(content);
     _artwork = addView(artWrapper);
     [NSLayoutConstraint activateConstraints:pins(_artwork, artWrapper)];
-    _artTop = [_artwork.topAnchor constraintEqualToAnchor:content.topAnchor constant:8];
+    _artTop = [_artwork.topAnchor constraintEqualToAnchor:content.topAnchor constant:ratio > 0 ? 0 : 8];
     NSLayoutConstraint *square = [_artwork.widthAnchor constraintEqualToAnchor:_artwork.heightAnchor];
     square.priority = 999;
     [NSLayoutConstraint activateConstraints:@[_artTop, square,
-        [content.bottomAnchor constraintEqualToAnchor:_artwork.bottomAnchor constant:8],
-        [_artwork.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:8]]];
-    const char *name = "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__";
-    Class cls = objc_lookUpClass(name);
-    if (!cls) { cls = objc_allocateClassPair(UIView.class, name, 0); objc_registerClassPair(cls); }
-    UIView *image = [cls new];
-    image.translatesAutoresizingMaskIntoConstraints = NO;
-    [_artwork addSubview:image];
-    [NSLayoutConstraint activateConstraints:pins(image, _artwork)];
-    image.backgroundColor = UIColor.systemIndigoColor;
+        [content.bottomAnchor constraintEqualToAnchor:_artwork.bottomAnchor constant:ratio > 0 ? 0 : 8],
+        [_artwork.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:ratio > 0 ? 0 : 8]]];
+    if (ratio > 0) {
+        UIView *videoView = addView(_artwork);
+        [NSLayoutConstraint activateConstraints:pins(videoView, _artwork)];
+        _videoHeight = [videoView.heightAnchor constraintEqualToConstant:56];
+        [NSLayoutConstraint activateConstraints:@[_videoHeight, [videoView.widthAnchor constraintEqualToConstant:56 * ratio]]];
+        Class cls = objc_lookUpClass("SPTVideoSurfaceImpl");
+        if (!cls) { cls = objc_allocateClassPair(UIView.class, "SPTVideoSurfaceImpl", 0); objc_registerClassPair(cls); }
+        _videoSurface = [cls new];
+        _videoSurface.translatesAutoresizingMaskIntoConstraints = NO;
+        [videoView addSubview:_videoSurface];
+        [NSLayoutConstraint activateConstraints:pins(_videoSurface, videoView)];
+        _videoSurface.backgroundColor = UIColor.systemTealColor;
+    } else {
+        const char *name = "_TtGC13Element_UIKit11ElementViewV22NowPlaying_ElementsAPI21ImageDataElementInputP_P__";
+        Class cls = objc_lookUpClass(name);
+        if (!cls) { cls = objc_allocateClassPair(UIView.class, name, 0); objc_registerClassPair(cls); }
+        UIView *image = [cls new];
+        image.translatesAutoresizingMaskIntoConstraints = NO;
+        [_artwork addSubview:image];
+        [NSLayoutConstraint activateConstraints:pins(image, _artwork)];
+        image.backgroundColor = UIColor.systemIndigoColor;
+    }
     _status = [UILabel new];
     _status.text = @"Now Playing";
     _status.accessibilityIdentifier = @"accessory.environment";
@@ -68,10 +83,11 @@ static NSArray *pins(UIView *view, UIView *parent) {
     UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[_status, _play]];
     row.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:row];
+    if (ratio > 0) [row.heightAnchor constraintEqualToConstant:44].active = YES;
     [NSLayoutConstraint activateConstraints:@[[row.leadingAnchor constraintEqualToAnchor:_artwork.trailingAnchor],
         [row.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-8],
-        [row.topAnchor constraintEqualToAnchor:_artwork.topAnchor],
-        [row.bottomAnchor constraintEqualToAnchor:_artwork.bottomAnchor],
+        (ratio > 0 ? [row.topAnchor constraintGreaterThanOrEqualToAnchor:_artwork.topAnchor] : [row.topAnchor constraintEqualToAnchor:_artwork.topAnchor]),
+        (ratio > 0 ? [row.bottomAnchor constraintLessThanOrEqualToAnchor:_artwork.bottomAnchor] : [row.bottomAnchor constraintEqualToAnchor:_artwork.bottomAnchor]),
         [row.centerYAnchor constraintEqualToAnchor:content.centerYAnchor]]];
     [parent layoutIfNeeded];
     return self;

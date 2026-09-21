@@ -73,6 +73,49 @@ static id fixture(NSString *name, Class superclass) {
     [self.root.view addSubview:scroll];
     return scroll;
 }
+- (UIViewController *)addElementVideo {
+    UIView *card = [self addElementAudio];
+    for (UIView *child in card.subviews.copy)
+        if ([NSStringFromClass(child.class) containsString:@"ImageDataElementInput"]) [child removeFromSuperview];
+    UIViewController *content = self.root.childViewControllers.lastObject.childViewControllers.firstObject;
+    UIViewController *video = fixture(@"NowPlaying_BarImpl.BarVideoViewController", UIViewController.class);
+    [content addChildViewController:video];
+    video.view.frame = CGRectMake(0, 0, 75, 56);
+    [card addSubview:video.view];
+    [video didMoveToParentViewController:content];
+    UIView *surface = fixture(@"SPTVideoSurfaceImpl", UIView.class);
+    surface.frame = video.view.bounds;
+    [video.view addSubview:surface];
+    return video;
+}
+- (void)testCapturedVideoRequiresItsLiveSurfaceAndVisibleTrackInfo {
+    UIViewController *video = [self addElementVideo];
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+    UIView *surface = video.view.subviews.firstObject;
+    surface.hidden = YES;
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarVideo);
+    surface.hidden = NO;
+    UIView *card = video.view.superview;
+    UIView *info = card.subviews[1]; // duration, track info, video
+    info.alpha = 0;
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarUnknownContent);
+    info.alpha = 1;
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+}
+- (void)testUnrelatedSurfaceCannotQualifyAVideoController {
+    UIViewController *video = [self addElementVideo];
+    [video.view.superview addSubview:video.view.subviews.firstObject];
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarVideo);
+}
+- (void)testVideoWithJamStillRequiresExpandedPresentation {
+    UIViewController *video = [self addElementVideo];
+    UIView *badge = fixture(@"NowPlaying_ECMKit.JamListeningAlongLiveBadgeView", UIView.class);
+    badge.frame = CGRectMake(80, 10, 44, 20);
+    [video.view.superview addSubview:badge];
+    XCTAssertTrue(SGRDynamicBarContentBlockers(self.root) & SGRDynamicBarExtraContent);
+    badge.hidden = YES;
+    XCTAssertEqual(SGRDynamicBarContentBlockers(self.root), 0u);
+}
 - (void)testUnknownAndUnloadedControllersFailWithoutLoadingTheirViews {
     UIViewController *unloaded = [UIViewController new];
     XCTAssertTrue(SGRDynamicBarContentBlockers(unloaded) & SGRDynamicBarUnknownContent);

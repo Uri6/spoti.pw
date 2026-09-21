@@ -37,6 +37,7 @@ static BOOL enabled(void) {
 @property(nonatomic, strong) SGRDynamicBarHost *host;
 @property(nonatomic, strong) SGRLiveBarLayout *layout;
 @property(nonatomic, strong) NSHashTable *transitions;
+@property(nonatomic, strong) NSHashTable *mediaChanges;
 @property(nonatomic) CGRect naturalCard;
 @property(nonatomic) BOOL updating;
 @property(nonatomic) BOOL refreshQueued;
@@ -56,6 +57,7 @@ static BOOL enabled(void) {
 - (instancetype)init {
     if ((self = [super init])) {
         _transitions = [NSHashTable weakObjectsHashTable];
+        _mediaChanges = [NSHashTable weakObjectsHashTable];
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         for (NSNotificationName name in @[UIApplicationWillResignActiveNotification, UIApplicationDidBecomeActiveNotification,
              UIAccessibilityVoiceOverStatusDidChangeNotification, UIContentSizeCategoryDidChangeNotification,
@@ -114,7 +116,7 @@ static BOOL enabled(void) {
     if (self.window.traitCollection.horizontalSizeClass != UIUserInterfaceSizeClassCompact) blockers |= SGRDynamicBarRegularWidth;
     if (self.keyboard) blockers |= SGRDynamicBarKeyboard;
     if (self.fullPlayer) blockers |= SGRDynamicBarFullPlayer;
-    if (self.transitions.allObjects.count) blockers |= SGRDynamicBarTransition;
+    if (self.transitions.allObjects.count || self.mediaChanges.allObjects.count) blockers |= SGRDynamicBarTransition;
     if (UIAccessibilityIsVoiceOverRunning() || UIAccessibilityIsSwitchControlRunning() || UIAccessibilityIsAssistiveTouchRunning() ||
         UIAccessibilityIsReduceMotionEnabled() ||
         UIContentSizeCategoryIsAccessibilityCategory(self.window.traitCollection.preferredContentSizeCategory)) blockers |= SGRDynamicBarAccessibility;
@@ -248,6 +250,35 @@ void SGRDynamicBarScrollChanged(UIScrollView *scroll) {
     }
 }
 
+id SGRDynamicBarBeginMediaChange(UIViewController *controller) {
+    if (!NSThread.isMainThread || !enabled()) return nil;
+    SGRDynamicBarSession *value = session(controller.viewIfLoaded.window, NO);
+    if (!value || value.updating || value.layout.applying || !value.player) return nil;
+    BOOL owned = NO;
+    for (UIViewController *parent = controller; parent; parent = parent.parentViewController)
+        if (parent == value.player) { owned = YES; break; }
+    if (!owned) return nil;
+    NSObject *token = [NSObject new];
+    [value.mediaChanges addObject:token];
+    [value detach];
+    value.failedPlacement = NO;
+    return token;
+}
+void SGRDynamicBarEndMediaChange(id token) {
+    if (!token || !NSThread.isMainThread) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (SGRDynamicBarSession *value in sg_sessions.allObjects) {
+            if (![value.mediaChanges containsObject:token]) continue;
+            // Other hooks can run during this pass; suspension remains until natural video
+            // dimensions have settled. A fresh lease must never measure the old 48 pt card.
+            [value.player.viewIfLoaded.superview layoutIfNeeded];
+            [value.mediaChanges removeObject:token];
+            value.failedPlacement = NO;
+            [value refresh];
+        }
+    });
+}
+
 void SGRDynamicBarBeginTransition(UIView *bar, id transition) {
     if (!transition) return;
     // Some animators do not populate their bar ivar until setup. Suspend existing hosts before
@@ -302,7 +333,7 @@ static void appendOwnedConstraints(NSMutableString *out, UIView *view) {
 }
 
 static void appendDiagnosticConstraints(NSMutableString *out, UIView *view, NSUInteger depth) {
-    if (!view || depth > 5) return;
+    if (!view || depth > 8) return;
     appendDiagnosticView(out, @"layout", view);
     appendOwnedConstraints(out, view);
     for (UIView *child in view.subviews) appendDiagnosticConstraints(out, child, depth + 1);

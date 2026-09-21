@@ -228,4 +228,39 @@
     [self drainReadinessRefresh];
     XCTAssertNotNil(self.host);
 }
+- (void)testMediaChangeRestoresBeforeMutationAndResumesAfterNaturalLayout {
+    id token = SGRDynamicBarBeginMediaChange(self.player.childViewControllers.firstObject);
+    XCTAssertNotNil(token);
+    [self assertRestored];
+    [self refresh];
+    XCTAssertNil(self.host);
+    SGRDynamicBarEndMediaChange(token);
+    XCTAssertNil(self.host);
+    [self drainReadinessRefresh];
+    XCTAssertNotNil(self.host);
+}
+- (void)testNestedMediaChangesRemainSuspendedUntilBothFinish {
+    UIViewController *child = self.player.childViewControllers.firstObject;
+    id outer = SGRDynamicBarBeginMediaChange(child);
+    id inner = SGRDynamicBarBeginMediaChange(child);
+    SGRDynamicBarEndMediaChange(inner);
+    [self drainReadinessRefresh];
+    [self assertRestored];
+    // A completed full-player lifecycle callback must not discard media suspension.
+    UIViewController *fullPlayer = [UIViewController new];
+    [self add:fullPlayer to:self.tabs frame:self.tabs.view.bounds];
+    SGRDynamicBarPlayerVisibility(fullPlayer, YES);
+    SGRDynamicBarPlayerVisibility(fullPlayer, NO);
+    XCTAssertNil(self.host);
+    SGRDynamicBarEndMediaChange(outer);
+    [self drainReadinessRefresh];
+    XCTAssertNotNil(self.host);
+}
+- (void)testUnrelatedControllerCannotInterruptTheCurrentPlayer {
+    SGRDynamicBarHost *host = self.host;
+    XCTAssertNil(SGRDynamicBarBeginMediaChange(self.tabs.selectedViewController));
+    SGRDynamicBarEndMediaChange(nil);
+    [self drainReadinessRefresh];
+    XCTAssertEqual(self.host, host);
+}
 @end

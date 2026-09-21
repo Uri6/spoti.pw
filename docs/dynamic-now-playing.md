@@ -14,10 +14,10 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
   feeds that become ready asynchronously. No scroll delegate or per-offset observer is replaced. It releases its host before snapshot setup and when content,
   visibility, accessibility or keyboard state makes compact presentation unsuitable.
 - `DynamicBarCapabilities` inspects existing, loaded controllers/views without loading more views.
-  It requires visible audio identities and rejects observed video, attachment, Jam badge and hat
-  identities. It finds a single dominant vertical scroll view on the selected page; ambiguous
-  layouts fail closed. Ordinary-audio identities were captured on 9.1.78/iOS 27; video/extra-content
-  co-occurrence and lifecycle timing remain to be verified on a device. Class identity checks handle
+  It requires visible audio identities, or a known video controller with its live surface and track
+  information inside the same stock card. Unknown video, attachment, Jam badge and hat identities fall back. It finds a single dominant vertical scroll view on the selected page; ambiguous
+  layouts fail closed. Audio and video identities were captured on 9.1.78/iOS 27; video layout and lifecycle
+  integration still need device verification. Class identity checks handle
   Swift runtime/display naming without equating mangled binary names with `NSStringFromClass`.
 - `DynamicBarPolicy` rejects unsuitable width, height and interruption states without UIKit.
 - `DynamicBarHost` is an added child with a real `UITabBarController`, presentation-only child
@@ -25,7 +25,7 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
   Native selection is forwarded to the original tab sources, and its accepted selection is mirrored
   back. Home's long press uses the existing Mod Settings action.
 - `DynamicBarScrollDriver` observes the existing pan recognizer without replacing its delegate.
-  An upward drag expands through the public `.never` behavior; the end of the gesture restores
+  An upward drag expands through the public `.never` behavior inside a spring animation; the end of the gesture restores
   `.onScrollDown` before the next gesture begins. This was needed for repeatable cycles in the probe.
 - `LiveBarLayout` leases the original player's layout. `LiveBarConstraints` recognizes the captured
   9.1.78 audio profile: four root edge pins, 56-point root/card heights, and artwork with 8-point
@@ -35,6 +35,12 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
   never reparents, scales or snapshots the player. Restoration only rewrites properties still owned
   by the lease. Spotify reclaiming the geometry suspends the adapter rather than causing a layout
   contest on every pass.
+- The video adapter preserves the same `SPTVideoSurfaceImpl`, its layer and its parent. A guarded
+  profile leases fixed dimensions of the video view and preserves its measured aspect. Audio/video
+  attachment, detachment and rectangle callbacks release the lease before Spotify handles the change,
+  then refresh after a natural layout pass. Nested callbacks hold separate suspension tokens. The
+  [video fixture](../harness/dynamic-tabbar/fixtures/spotify-9.1.78-video.md) distinguishes measured
+  structure from the dimensions still awaiting a deeper device capture.
 
 The native accessory supplies the glass and geometry. A passthrough host returns the original
 control from hit testing, including when its card extends outside its original parent's bounds.
@@ -56,8 +62,9 @@ Accessibility fallback observes Apple's documented status notifications and capa
 
 | Case | Current behavior / limit |
 | --- | --- |
-| Ordinary audio | Attempts native compact hosting only when positive identities and measured layout fit. Its real controller/element identities were captured; live compact layout is not yet validated. |
-| Video, Jam badge, attachments, extra hat content | Restores the existing expanded bars when detected. Detection tested with synthetic trees, not real sessions. |
+| Ordinary audio | Attempts native compact hosting only when positive identities and measured layout fit. User confirmed collapse/expand on physical r5; upward animation was abrupt and is corrected in the next candidate. |
+| Captured live video profile | Candidate preserves the original surface and aspect through compact hosting. Real playback and audio/video switches await device validation. |
+| Unknown video, Jam badge, attachments, extra hat content | Restores the existing expanded bars when detected. |
 | Unknown hierarchy, fixed/non-fitting card, clipping/transformed ancestor | Keeps the existing presentation; no guessed selectors or edits to unrecognized constraint profiles. |
 | Keyboard, full player, transition, inactive app, hidden stock bar | Suspends presentation and restores owned geometry. Actual Spotify transition/cancellation timing remains unverified. |
 | Regular width, narrow layout, large accessibility text, VoiceOver, Switch Control, AssistiveTouch, Reduce Motion | Expanded fallback. |
@@ -90,7 +97,7 @@ acceptance; see the device findings below.
 | Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
 | Layer boundaries and patch whitespace | Passed |
 | Full Theos compile, package and IPA injection | Passed with the private Spotify 9.1.78 input |
-| Physical Spotify runtime | Installed on iOS 27. User recording shows the bars do not collapse with the option enabled; integration is not passing. |
+| Physical Spotify runtime | User confirmed audio collapse/expand in r5. Expansion animation was abrupt; video fell back as designed and is now an explicit support requirement. New candidate awaits installation and physical verification. |
 
 The test command uses `pipefail`; its outcome and the exported individual test counts were checked
 separately. The final source revision is recorded so documentation-only follow-ups are not mistaken
@@ -146,5 +153,18 @@ r4 was installed successfully, but the device still fell back. The new report sh
 360×48 card size at y=-332.5 relative to its slot. The original source height/pins also supplied
 the enclosing Auto Layout bar's height; releasing them removed that sizing contribution. The next
 revision holds the original parent height during the lease, and tests both ambiguous layout and
-window position with a parent sized by its child instead of a fixed-frame parent. Physical
-acceptance of r5 remains pending; its 53 tests include the child-sized parent regression.
+window position with a parent sized by its child instead of a fixed-frame parent. The user confirmed r5 now collapses on downward scrolling and expands on upward scrolling.
+The upward transition jumped to its endpoint, and video still used the deliberate fallback.
+Both are being addressed in the next candidate; the broader device matrix remains outstanding.
+
+### Expansion and live video follow-up
+
+Expansion revision `a5891b6`, private run `35549346705`, passed all 53 tests. The constrained UI
+scenario now requires at least two moving intermediate presentation-layer frames aligned with the
+real native accessory within 3 points, on each of three expansion cycles. This is simulator evidence,
+not yet a physical result.
+
+The video candidate adds landscape/portrait aspect fixtures, surface/layer/parent identity checks,
+external dimension replacement and surface detachment, positive video eligibility, nested lifecycle
+suspension, and a fourth native gesture UI scenario. Its run and device findings will be recorded
+after completion. The fixture uses a generic colored view, not an actual decoder.

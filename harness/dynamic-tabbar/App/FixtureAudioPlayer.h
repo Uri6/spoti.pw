@@ -5,10 +5,13 @@
 @property(nonatomic, readonly) UIView *source;
 @property(nonatomic, readonly) UIView *card;
 @property(nonatomic, readonly) UIView *artwork;
+@property(nonatomic, readonly) UIView *videoSurface;
+@property(nonatomic, readonly) NSLayoutConstraint *videoHeight;
 @property(nonatomic, readonly) UILabel *status;
 @property(nonatomic, readonly) UIButton *play;
 @property(nonatomic, readonly) NSArray<NSLayoutConstraint *> *rootPins;
 @property(nonatomic, readonly) NSLayoutConstraint *cardHeight;
 @property(nonatomic, readonly) NSLayoutConstraint *artTop;
 - (instancetype)initInParent:(UIView *)parent;
+- (instancetype)initInParent:(UIView *)parent videoAspectRatio:(CGFloat)ratio;
 @end

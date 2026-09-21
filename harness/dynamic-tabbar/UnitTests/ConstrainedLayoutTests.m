@@ -127,4 +127,55 @@
     XCTAssertTrue(CGRectEqualToRect(self.parent.frame, parentFrame));
     XCTAssertEqualWithAccuracy(self.fixture.card.bounds.size.height, 56, 0.5);
 }
+- (void)installVideo:(CGFloat)ratio {
+    [self.layout restore];
+    [self.fixture.source removeFromSuperview];
+    self.fixture = [[FixtureAudioPlayer alloc] initInParent:self.parent videoAspectRatio:ratio];
+    self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.fixture.source cardView:self.fixture.card];
+}
+- (void)testVideoSurfaceRemainsLiveAndPreservesAspectAcrossWidths {
+    for (NSNumber *ratioValue in @[@(4.0/3), @(16.0/9), @(9.0/16)]) {
+        CGFloat ratio = ratioValue.doubleValue;
+        [self installVideo:ratio];
+        UIView *surface = self.fixture.videoSurface;
+        UIView *surfaceParent = surface.superview;
+        CALayer *layer = surface.layer;
+        for (NSNumber *width in @[@360, @260, @360]) {
+            XCTAssertTrue([self place:width.doubleValue], @"%@", self.layout.rejectionReason);
+            XCTAssertEqual(self.fixture.videoSurface, surface);
+            XCTAssertEqual(surface.superview, surfaceParent);
+            XCTAssertEqual(surface.layer, layer);
+            XCTAssertEqualWithAccuracy(surface.bounds.size.height, 48, 0.5);
+            XCTAssertEqualWithAccuracy(surface.bounds.size.width / surface.bounds.size.height, ratio, 0.01);
+            XCTAssertEqualWithAccuracy(self.fixture.play.bounds.size.height, 44, 0.5);
+        }
+        [self.layout restore];
+        XCTAssertEqualWithAccuracy(surface.bounds.size.height, 56, 0.5);
+        XCTAssertEqualWithAccuracy(surface.bounds.size.width, 56 * ratio, 0.5);
+        XCTAssertEqual(self.fixture.videoHeight.constant, 56);
+    }
+}
+- (void)testExternalVideoSizeChangeRevokesLeaseWithoutOverwritingIt {
+    [self installVideo:4.0/3];
+    XCTAssertTrue([self place:360]);
+    self.fixture.videoHeight.constant = 60;
+    XCTAssertFalse(self.layout.ownsCurrentGeometry);
+    [self.layout restore];
+    XCTAssertEqual(self.fixture.videoHeight.constant, 60);
+}
+- (void)testUnsupportedVideoAspectDoesNotMutateTheSurface {
+    [self installVideo:4];
+    XCTAssertFalse([self place:260]);
+    XCTAssertEqual(self.fixture.videoHeight.constant, 56);
+    XCTAssertEqualWithAccuracy(self.fixture.videoSurface.bounds.size.width, 224, 0.5);
+}
+- (void)testVideoSurfaceDetachmentRevokesTheLease {
+    [self installVideo:16.0/9];
+    XCTAssertTrue([self place:360]);
+    [self.fixture.videoSurface removeFromSuperview];
+    XCTAssertFalse(self.layout.ownsCurrentGeometry);
+    [self.layout restore];
+    XCTAssertEqual(self.fixture.videoHeight.constant, 56);
+    XCTAssertNil(self.fixture.videoSurface.superview);
+}
 @end
