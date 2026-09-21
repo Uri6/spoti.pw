@@ -39,8 +39,10 @@
     XCTAssertEqualWithAccuracy(self.fixture.artwork.bounds.size.height, 40, 0.5);
     XCTAssertEqualWithAccuracy(self.fixture.play.bounds.size.width, 44, 0.5);
     XCTAssertEqualWithAccuracy(self.fixture.play.bounds.size.height, 40, 0.5);
-    CGPoint point = [self.fixture.play convertPoint:CGPointMake(22, 20) toView:self.window];
-    UIView *hit = [self.layout hitTest:point fromView:self.window event:nil];
+    XCTAssertTrue(self.layout.ownsCurrentGeometry);
+    UIView *host = self.window.rootViewController.view;
+    CGPoint point = [self.fixture.play convertPoint:CGPointMake(22, 20) toView:host];
+    UIView *hit = [self.layout hitTest:point fromView:host event:nil];
     XCTAssertEqual(hit, self.fixture.play);
     [(UIButton *)hit sendActionsForControlEvents:UIControlEventTouchUpInside];
     XCTAssertEqualObjects(self.fixture.play.accessibilityValue, @"1");

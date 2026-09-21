@@ -4,7 +4,8 @@ This standalone app compares public UIKit minimization with an owned scroll view
 scroll view designated by `setContentScrollView:forEdge:`. Both use the production scroll driver.
 In the external case, the production chrome host positions the original player view while keeping
 its original controller and view parents. Its hit-test bridge delivers touches to the original
-button. No Spotify binary or private UIKit selectors are involved.
+button. A third `constrained` scenario uses the root/card/artwork constraint graph captured from
+Spotify 9.1.78 and the production constraint lease through the same native accessory. No Spotify binary or private UIKit selectors are involved.
 
 The UI tests send actual drag gestures, assert the accessory's inline/regular trait, test its action
 while inline, repeat three cycles, select a different tab, and retain screenshots. The external
@@ -15,10 +16,12 @@ text sizes. Voice Control and other accessibility interactions still require dev
 
 Hosted unit tests exercise the production layout lease, content/scroll classifiers and presentation
 coordinator. The [ordinary-audio fixture](fixtures/spotify-9.1.78-audio.md) reproduces identities and
-nesting observed on a physical device; its UIKit layout remains synthetic. Other controller names
+nesting observed on a physical device; the constrained fixture also reproduces its measured
+layout relationships with synthetic content. It does not reproduce every private Spotify subview. Other controller names
 correspond to binary metadata. The fixtures cover video/extra-content rejection, ambiguous/short/horizontal
 scroll views, geometry replacement, fixed cards, restoration, keyboard, player appearance and
-transition setup before the animator supplies its bar.
+transition setup before the animator supplies its bar, late feed population, constraint restoration,
+external height changes, reparenting and right-to-left geometry.
 
 Generate with `xcodegen generate --spec project.yml`, then run the `DynamicTabBarProbe` test scheme on
 an iOS 26+ simulator. The private development workflow selects an available runtime and saves results.
