@@ -7,5 +7,7 @@
 @property(nonatomic, weak) UITabBarController *tabController;
 @property(nonatomic, weak) UIScrollView *scrollView;
 @property(nonatomic, getter=isPermitted) BOOL permitted;
+// Connected only by the diagnostic build; observes geometry without driving layout.
+@property(nonatomic, copy) void (^diagnosticEvent)(NSString *event);
 - (void)invalidate;
 @end

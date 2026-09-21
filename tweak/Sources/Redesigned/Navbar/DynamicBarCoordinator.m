@@ -4,6 +4,7 @@
 #import "Core/SGCore.h"
 #import "Settings/SGPage.h"
 #import "Redesigned/NowPlayingBar/LiveBarLayout.h"
+#import <QuartzCore/QuartzCore.h>
 
 static char kSession;
 static NSHashTable *sg_sessions;
@@ -49,6 +50,10 @@ static BOOL enabled(void) {
 @property(nonatomic) CGSize lastSize;
 @property(nonatomic) uint32_t lastBlockers;
 @property(nonatomic, copy) NSString *lastRejection;
+@property(nonatomic, strong) NSMutableArray<NSString *> *diagnosticEvents;
+@property(nonatomic) BOOL diagnosticHasPlacement;
+@property(nonatomic) BOOL diagnosticInline;
+- (void)recordEvent:(NSString *)event;
 - (void)refresh;
 - (void)detach;
 @end
@@ -58,6 +63,7 @@ static BOOL enabled(void) {
     if ((self = [super init])) {
         _transitions = [NSHashTable weakObjectsHashTable];
         _mediaChanges = [NSHashTable weakObjectsHashTable];
+        _diagnosticEvents = [NSMutableArray array];
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         for (NSNotificationName name in @[UIApplicationWillResignActiveNotification, UIApplicationDidBecomeActiveNotification,
              UIAccessibilityVoiceOverStatusDidChangeNotification, UIContentSizeCategoryDidChangeNotification,
@@ -68,6 +74,17 @@ static BOOL enabled(void) {
     return self;
 }
 - (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
+- (void)recordEvent:(NSString *)event {
+    if (!NSClassFromString(@"FLEXManager")) return;
+    CALayer *layer = self.card.layer.presentationLayer, *window = self.window.layer.presentationLayer;
+    CGRect presented = layer && window ? [layer convertRect:layer.bounds toLayer:window] : CGRectNull;
+    CGRect model = self.card.window ? [self.card convertRect:self.card.bounds toView:self.window] : CGRectNull;
+    [self.diagnosticEvents addObject:[NSString stringWithFormat:@"%.3f host=%p %@ card=%@ target=%@", CACurrentMediaTime(), self.host, event, NSStringFromCGRect(presented), NSStringFromCGRect(model)]];
+    if (self.diagnosticEvents.count > 128) [self.diagnosticEvents removeObjectAtIndex:0];
+}
+- (void)dynamicBarHost:(SGRDynamicBarHost *)host diagnosticEvent:(NSString *)event {
+    if (host == self.host) [self recordEvent:event];
+}
 - (void)changed:(NSNotification *)note {
     self.failedPlacement = NO;
     if ([note.name isEqualToString:UIApplicationWillResignActiveNotification]) [self detach];
@@ -81,6 +98,8 @@ static BOOL enabled(void) {
 }
 - (void)detach {
     if (self.updating || (!self.host && !self.layout)) return;
+    [self recordEvent:@"detach"];
+    self.diagnosticHasPlacement = NO;
     self.updating = YES;
     [self.layout restore];
     self.layout = nil;
@@ -130,6 +149,7 @@ static BOOL enabled(void) {
     blockers = SGRDynamicBarBlockers(context);
     if (self.lastBlockers != blockers) {
         self.lastBlockers = blockers;
+        [self recordEvent:[NSString stringWithFormat:@"blockers=0x%x", blockers]];
         SGLog(@"dynamic bar: presentation blockers 0x%x", blockers);
     }
     if (blockers) { self.failedPlacement = NO; [self detach]; return; }
@@ -139,6 +159,7 @@ static BOOL enabled(void) {
         self.naturalCard = natural;
         self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.player.view cardView:self.card];
         self.host = [SGRDynamicBarHost new];
+        [self recordEvent:@"attach"];
         self.host.delegate = self;
         self.glassAlpha = self.glass.alpha;
         self.mirrorAlpha = self.mirror.alpha;
@@ -169,10 +190,16 @@ static BOOL enabled(void) {
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
     if (self.updating || self.layout.applying || host != self.host) return;
+    if (!self.diagnosticHasPlacement || self.diagnosticInline != inlineLayout) {
+        [self recordEvent:[NSString stringWithFormat:@"placement inline=%d enabled=%d inherited=%.3f", inlineLayout, UIView.areAnimationsEnabled, UIView.inheritedAnimationDuration]];
+        self.diagnosticHasPlacement = YES;
+        self.diagnosticInline = inlineLayout;
+    }
     SGRDynamicBarContext context = {SGRDynamicBarContentBlockers(self.player), rect.size.width, 240, rect.size.height};
     uint32_t blockers = SGRDynamicBarBlockers(context);
     if (blockers || ![self.layout placeCardInRect:rect ofView:view]) {
         self.lastRejection = blockers ? [NSString stringWithFormat:@"accessory blockers 0x%x", blockers] : (self.layout.rejectionReason ?: @"layout unavailable");
+        [self recordEvent:[NSString stringWithFormat:@"placement rejected: %@", self.lastRejection]];
         SGLog(@"dynamic bar: live layout rejected (blockers 0x%x, %@); returning presentation to Spotify", blockers,
               blockers ? @"accessory eligibility" : (self.layout.rejectionReason ?: @"layout unavailable"));
         [self detach];
@@ -220,6 +247,7 @@ void SGRDynamicBarUpdatePlayer(UIViewController *container, UIView *card, UIVisu
     if (!value || value.updating || value.layout.applying) return;
     if (value.layout.placed && !value.layout.ownsCurrentGeometry) {
         value.lastRejection = @"Spotify replaced source geometry between layouts";
+        [value recordEvent:value.lastRejection];
         [value detach];
         value.failedPlacement = YES; // Spotify reclaimed layout; do not compete on each pass.
     }
@@ -258,6 +286,7 @@ id SGRDynamicBarBeginMediaChange(UIViewController *controller) {
     for (UIViewController *parent = controller; parent; parent = parent.parentViewController)
         if (parent == value.player) { owned = YES; break; }
     if (!owned) return nil;
+    [value recordEvent:@"media change began"];
     NSObject *token = [NSObject new];
     [value.mediaChanges addObject:token];
     [value detach];
@@ -269,6 +298,7 @@ void SGRDynamicBarEndMediaChange(id token) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (SGRDynamicBarSession *value in sg_sessions.allObjects) {
             if (![value.mediaChanges containsObject:token]) continue;
+            [value recordEvent:@"media change ending"];
             // Other hooks can run during this pass; suspension remains until natural video
             // dimensions have settled. A fresh lease must never measure the old 48 pt card.
             [value.player.viewIfLoaded.superview layoutIfNeeded];
@@ -355,6 +385,9 @@ static void appendDiagnosticState(NSMutableString *out, BOOL launchEnabled) {
         appendDiagnosticView(out, @"mirror", value.mirror);
         appendDiagnosticView(out, @"player", value.player.viewIfLoaded);
         appendDiagnosticView(out, @"card", value.card);
+        [out appendString:@"motion-events (diagnostic-only, oldest first)\n"];
+        for (NSString *event in value.diagnosticEvents) [out appendFormat:@"  %@\n", event];
+        [out appendString:@"end-motion-events\n"];
         // Include the containing views that can own the player's height constraint, but not the
         // rest of the application's tree or any media labels.
         appendDiagnosticConstraints(out, value.player.viewIfLoaded, 0);

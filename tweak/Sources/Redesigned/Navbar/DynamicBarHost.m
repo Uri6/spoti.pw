@@ -71,6 +71,14 @@
         [self.tabController.tabBar addGestureRecognizer:hold];
         self.hold = hold;
         self.scrollDriver = [SGRDynamicBarScrollDriver new];
+        if (NSClassFromString(@"FLEXManager")) {
+            __weak typeof(self) weakSelf = self;
+            self.scrollDriver.diagnosticEvent = ^(NSString *event) {
+                SGRDynamicBarHost *host = weakSelf;
+                if ([host.delegate respondsToSelector:@selector(dynamicBarHost:diagnosticEvent:)])
+                    [host.delegate dynamicBarHost:host diagnosticEvent:event];
+            };
+        }
         self.scrollDriver.tabController = self.tabController;
         self.scrollDriver.scrollView = self.observedScrollView;
         self.scrollDriver.permitted = self.permitsMinimization;

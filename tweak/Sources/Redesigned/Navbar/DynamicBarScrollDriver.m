@@ -1,8 +1,26 @@
 #import "DynamicBarScrollDriver.h"
+#import <QuartzCore/QuartzCore.h>
 #include <math.h>
 
 @implementation SGRDynamicBarScrollDriver {
     CGFloat _lastOffset, _travel;
+    CADisplayLink *_diagnosticLink;
+    CFTimeInterval _diagnosticStart;
+}
+- (void)sampleExpansion:(CADisplayLink *)link {
+    if (!self.diagnosticEvent || link.timestamp - _diagnosticStart > 0.8) {
+        [_diagnosticLink invalidate]; _diagnosticLink = nil;
+        return;
+    }
+    if (@available(iOS 26.0, *)) {
+        UIView *bar = self.tabController.tabBar;
+        UIView *slot = self.tabController.bottomAccessory.contentView;
+        CALayer *window = bar.window.layer.presentationLayer;
+        CALayer *barLayer = bar.layer.presentationLayer, *slotLayer = slot.layer.presentationLayer;
+        CGRect barRect = window && barLayer ? [barLayer convertRect:barLayer.bounds toLayer:window] : CGRectNull;
+        CGRect slotRect = window && slotLayer ? [slotLayer convertRect:slotLayer.bounds toLayer:window] : CGRectNull;
+        self.diagnosticEvent([NSString stringWithFormat:@"expansion sample t=%.3f bar=%@ slot=%@", link.timestamp - _diagnosticStart, NSStringFromCGRect(barRect), NSStringFromCGRect(slotRect)]);
+    }
 }
 - (void)setScrollView:(UIScrollView *)scrollView {
     if (_scrollView == scrollView) return;
@@ -25,7 +43,15 @@
     if (@available(iOS 26.0, *)) {
         UITabBarController *controller = self.tabController;
         if (!controller || controller.tabBarMinimizeBehavior == UITabBarMinimizeBehaviorNever) return;
+        if (self.diagnosticEvent) {
+            self.diagnosticEvent([NSString stringWithFormat:@"expand request animated=%d enabled=%d inherited=%.3f permitted=%d", animated, UIView.areAnimationsEnabled, UIView.inheritedAnimationDuration, self.permitted]);
+            [_diagnosticLink invalidate];
+            _diagnosticStart = CACurrentMediaTime();
+            _diagnosticLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleExpansion:)];
+            [_diagnosticLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+        }
         void (^changes)(void) = ^{
+            if (self.diagnosticEvent) self.diagnosticEvent([NSString stringWithFormat:@"expand transaction enabled=%d inherited=%.3f", UIView.areAnimationsEnabled, UIView.inheritedAnimationDuration]);
             controller.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
             // Keep native chrome and the original player's constraint lease in one transaction.
             [controller.view layoutIfNeeded];
@@ -72,6 +98,8 @@
     }
 }
 - (void)invalidate {
+    [_diagnosticLink invalidate]; _diagnosticLink = nil;
+    self.diagnosticEvent = nil;
     self.permitted = NO;
     self.scrollView = nil;
     self.tabController = nil;

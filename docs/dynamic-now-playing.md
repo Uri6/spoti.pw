@@ -202,3 +202,9 @@ The previous lease retained the old constraint object, so this normal replacemen
 Regression coverage replaces equivalent constraints during `layoutIfNeeded` for landscape and portrait ratios, replaces them between placements while preserving original-button hit testing, and introduces an external dimension requirement. Physical r9 playback, scrolling, expansion and media switching remain unverified until installation and device testing.
 
 Private run `35588127738` built r9 from `54a99bc438d1026424668462f903f1bb7344f879`. Attempt 1 passed 67/68 tests: all three new video regressions and the video UI scenario passed, but the constrained-audio expansion measurement failed. The retained trace shows a 440 ms gap between callbacks after only one aligned intermediate sample. An unchanged-code repeat (attempt 2) passed all 68 tests, with no skips. Both results are retained; this timing sensitivity and physical animation smoothness remain acceptance concerns, not a reason to weaken the assertion.
+
+### r9 physical video result and r10 motion diagnostics
+
+The user confirmed that r9 now collapses with video, but expansion still jumps. The live device snapshot showed an active host, no current placement failure, a 48-point live surface preserving its aspect, and a historical source-geometry rejection. That historical message alone cannot establish when the host was rebuilt.
+
+r10 retains a bounded, diagnostic-only event history across host replacement. It records attachment/removal, media callbacks, placement environment and animation context, plus 0.8 seconds of presentation-layer samples after an expansion request. Sampling uses the display's default cadence without changing layout or playback. It runs only when FLEX is present. This distinguishes missing animation from host replacement on the physical iOS 27 device; r10 does not claim to fix expansion.
