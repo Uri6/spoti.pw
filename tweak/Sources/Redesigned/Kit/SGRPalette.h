@@ -32,7 +32,10 @@ typedef struct {
 
 // `surface` tinted a little towards the artwork's dominant colour (brought down to a luminance of 0.05, then
 // 35% of it mixed in), so a tile or row on the surface quietly takes its cover's colour while white text on
-// it keeps its contrast. nil to the completion when the image has no bitmap to read.
+// it keeps its contrast. Never dimmer than `surface`: a mix that came out darker is lifted back to its
+// luminance keeping its hue, so a near-black cover cannot cost the tile the step of elevation it stands on,
+// nor sink it into the grey band SGRAmoled.x turns pure black. nil to the completion when the image has no
+// bitmap to read.
 + (void)tintForImage:(UIImage *)image surface:(UIColor *)surface completion:(void (^)(UIColor *tint))completion;
 @end
 

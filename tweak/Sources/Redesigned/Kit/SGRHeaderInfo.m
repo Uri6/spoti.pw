@@ -3,6 +3,7 @@
 #import "Core/SGCore.h"
 #import "SGRHeaderInfo.h"
 #import "SGRActionRow.h"
+#import "SGRRestyle.h"
 #import "SGRTokens.h"
 
 const CGFloat SGRHeaderInfoBottom = 14;
@@ -34,6 +35,7 @@ static BOOL setText(UILabel *label, NSString *text) {
     UILabel *_title, *_creator, *_length, *_about;
     SGRMirrorButton *_shuffle, *_trailing;
     SGRPlayCapsule *_play;
+    __weak UIView *_creatorLink;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -60,10 +62,14 @@ static BOOL setText(UILabel *label, NSString *text) {
     return self;
 }
 
-// Touches only for the buttons: the text lets a pull or a tap through to the page under it.
+// Touches only for the buttons and, where there is one, the creator line: the rest of the text lets a
+// pull or a tap through to the page under it.
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
-    return hit == self ? nil : hit;
+    // The creator label is the width of the view, so the label itself answers a touch well away from the
+    // name; both it and the view answer only where the name is drawn.
+    if (hit == self || hit == _creator) return [self sgr_creatorHit:point];
+    return hit;
 }
 
 - (BOOL)showTitle:(NSString *)title creator:(NSString *)creator length:(NSString *)length about:(NSString *)about {
@@ -74,6 +80,33 @@ static BOOL setText(UILabel *label, NSString *text) {
     changed |= setText(_about, about);
     if (changed) [self setNeedsLayout];
     return changed;
+}
+
+// The creator line, tappable. The label is as wide as the view and centred, so the target is narrowed to
+// the text itself -- a tap either side of a short name belongs to the page under it, which a pull down
+// starts on. Spotify's own control stays concealed where it is and only fires.
+- (void)showCreatorLink:(UIView *)control {
+    _creatorLink = control;
+    BOOL live = control != nil;
+    if (_creator.userInteractionEnabled == live) return;
+    _creator.userInteractionEnabled = live;
+    _creator.accessibilityTraits = live ? UIAccessibilityTraitButton : UIAccessibilityTraitStaticText;
+    if (!live || _creator.gestureRecognizers.count) return;
+    [_creator addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(sgr_creatorTapped)]];
+}
+
+- (void)sgr_creatorTapped {
+    SGRActivate(_creatorLink);
+}
+
+// The creator line takes a touch only where its text is; everything else of the view is the page's.
+- (UIView *)sgr_creatorHit:(CGPoint)point {
+    if (!_creator.userInteractionEnabled || _creator.hidden) return nil;
+    CGSize text = [_creator sizeThatFits:CGSizeMake(_creator.bounds.size.width, CGFLOAT_MAX)];
+    CGRect frame = _creator.frame;
+    CGRect word = CGRectInset(CGRectMake(round(CGRectGetMidX(frame) - text.width / 2), frame.origin.y,
+                                         MIN(text.width, frame.size.width), frame.size.height), -8, -6);
+    return CGRectContainsPoint(word, point) ? _creator : nil;
 }
 
 - (void)showShuffle:(UIView *)shuffle play:(UIView *)play trailing:(UIView *)trailing

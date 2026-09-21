@@ -81,6 +81,10 @@ static void offerWhenClear(NSInteger tries) {
 // The first time Spotify is in front, and once: a check every launch would ask GitHub far more often
 // than the six hours the cache allows anyway, and what a check already landed is enough to go on.
 void SGWatchForUpdates(void) {
+    // TEMPORARY, remove before committing: forgets which release this phone has been told about, so the
+    // sheet is offered again for one it has already had (0.20.0 was marked told on 2026-09-20 by a
+    // manual Check now, which is what let the sheet through in the first place).
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:kTold];
     if (!SGEnabled(SGKeyUpdateNotice)) return;
     __block id token = [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification
                                                                        object:nil

@@ -25,8 +25,8 @@
 // Explore, and the headline go with it -- the headline's pre-save is also the list's own Release Countdown
 // section. The Kit's SGRHeaderInfo reads the name and the listeners off Spotify's concealed labels and draws
 // and fires Spotify's shuffle, play and Follow, whose word ("Follow", "Following") is its state in the app's
-// language. More stays in Spotify's row, where the row needs it (ArtistField.x), and is drawn by a glass
-// button of the redesign's in the top trailing corner, level with the back button, firing it.
+// language. More stays in Spotify's row, where the row needs it (ArtistField.x), and the Kit's pinned ⋯
+// (SGRPinnedMore) draws and fires it from the top trailing corner of the page, level with the back button.
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Artist.h"
@@ -39,11 +39,8 @@ static const CGFloat kMinCover = 80, kMinHero = 120;
 // The collapsed ImageHeaderView, Spotify's navigation bar; the text fades out over the last kFade before it.
 static const CGFloat kBar = 100, kFade = 150;
 
-static char kInfoKey, kHeroKey, kHeroHeightKey, kContainerHeightKey, kCoverWatchedKey, kRowWatchedKey;
+static char kInfoKey, kHeroKey, kHeroHeightKey, kContainerHeightKey, kRowWatchedKey;
 static char kTitleKey, kMetaKey, kShuffleKey, kPlayKey, kFollowKey, kArtworkKey, kBarKey, kMoreKey, kMoreButtonKey;
-
-// The back button's glass sits this far under the top of the safe area; more lines up with it.
-static const CGFloat kCornerTop = 2, kCornerSide = 12;
 
 #pragma mark - Spotify's views
 
@@ -90,10 +87,15 @@ static UIView *containerOf(UIView *header) {
 @interface SGRArtistHero : UIView
 @property (nonatomic, readonly) UIImageView *picture;
 @property (nonatomic, copy) UIColor *fieldColor;
+// The photo in Spotify's artwork view, and every photo it puts there afterwards: the hero keeps itself
+// right, rather than being handed a picture on each of the header's passes and staying empty between them.
+// The same view again only re-reads it.
+- (void)followArtwork:(UIImageView *)source;
 @end
 
 @implementation SGRArtistHero {
     CAGradientLayer *_scrim, *_dissolve;
+    __weak UIImageView *_artwork;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -155,24 +157,46 @@ static UIView *containerOf(UIView *header) {
     [CATransaction commit];
 }
 
+- (void)followArtwork:(UIImageView *)source {
+    if (!source) return;
+    [self takeArtwork:source late:NO];
+    if (_artwork == source) return;
+    _artwork = source;
+    __weak SGRArtistHero *weakSelf = self;
+    SGRObserveImage(source, ^(UIImageView *view) { [weakSelf takeArtwork:view late:YES]; });
+}
+
+// `late` is a photo that arrived after the header had laid out -- the artist opened for the first time,
+// whose picture is still being fetched while the page is already on screen (issue #52). The log line says
+// once that the watch, and not one of the header's passes, is what filled the hero.
+- (void)takeArtwork:(UIImageView *)source late:(BOOL)late {
+    UIImage *image = source.image;
+    if (!image || _picture.image == image) return;
+    _picture.image = image;
+    // The page's field takes its colour from the same picture.
+    SGRArtistSetArtwork(self, image);
+    static BOOL logged;
+    if (late && !logged) {
+        logged = YES;
+        SGLog(@"redesign artist: the photo landed after the header had laid out; the hero took it");
+    }
+}
+
 @end
 
-// The photo Spotify loaded, read from the image view of its artwork.
+// The image view of Spotify's artwork: the one with the photo in it, or, before the photo has been fetched,
+// the empty one it will land in, so it can be watched from the first pass. Either way one the size of the
+// picture, never a small placeholder glyph beside it.
 static UIImageView *photoIn(UIView *artwork) {
-    __block UIImageView *found = nil;
+    __block UIImageView *found = nil, *empty = nil;
     SGForEachView(artwork, ^(UIView *v) {
         if (found || ![v isKindOfClass:UIImageView.class]) return;
         UIImageView *image = (UIImageView *)v;
-        if (image.image && image.bounds.size.width >= kMinCover) found = image;
+        if (image.bounds.size.width < kMinCover) return;
+        if (image.image) found = image;
+        else if (!empty) empty = image;
     });
-    return found;
-}
-
-static void showPhoto(SGRArtistHero *hero, UIImageView *view, UIView *container) {
-    UIImage *image = view.image;
-    if (!image || view.bounds.size.width < kMinCover) return;
-    if (hero.picture.image != image) hero.picture.image = image;
-    SGRArtistSetArtwork(container, image);
+    return found ?: empty;
 }
 
 // The picture from the top of the container down to `bottom`, which comes from the container at rest and only
@@ -195,18 +219,7 @@ static void applyHero(UIView *container, UIView *artwork, CGFloat bottom) {
     if (height < kMinHero) return;
     setFrame(hero, CGRectMake(0, 0, container.bounds.size.width, height));
     hero.fieldColor = SGRArtistFieldColor(container);
-
-    UIImageView *source = photoIn(artwork);
-    showPhoto(hero, source, container);
-    // The photo loads after the header is laid out, and a new image lays nothing out again.
-    if (source && !objc_getAssociatedObject(source, &kCoverWatchedKey)) {
-        objc_setAssociatedObject(source, &kCoverWatchedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        __weak SGRArtistHero *weakHero = hero;
-        __weak UIView *weakContainer = container;
-        SGRObserveImage(source, ^(UIImageView *view) {
-            if (weakHero && weakContainer) showPhoto(weakHero, view, weakContainer);
-        });
-    }
+    [hero followArtwork:photoIn(artwork)];
 }
 
 #pragma mark - the header's pass
@@ -257,30 +270,21 @@ static void applyHeader(UIView *header) {
     UIView *shuffle = SGRFindByIdentifier(header, @"Components.UI.ShuffleButton", &kShuffleKey);
     UIView *play = SGRFindByIdentifier(header, @"header-play-button", &kPlayKey);
     UIView *follow = SGRFindByIdentifier(header, @"Curation.FollowButtonElementKit.FollowButton", &kFollowKey);
+    NSString *word = firstText(follow);
     [info showShuffle:shuffle play:play trailing:follow trailingFallback:[UIImage systemImageNamed:@"person.badge.plus"]
             playColor:SGRArtistFieldColor(container)];
 
-    // More, in the top trailing corner of the page. It scrolls away with the photo; collapsed, the page is a
-    // list and its rows carry their own more.
+    // More, in the top trailing corner of the page itself rather than of the container, which scrolls away
+    // with the photo: pinned there it is the same button in the same place on the album and the playlist,
+    // and the page keeps it however far down the list one is (issue #57).
     UIView *more = SGRFindByIdentifier(header, @"Components.UI.ContextMenuButton*", &kMoreKey);
-    SGRMirrorButton *moreButton = objc_getAssociatedObject(container, &kMoreButtonKey);
-    if (!moreButton) {
-        moreButton = [[SGRMirrorButton alloc] initWithFrame:CGRectZero];
-        moreButton.fallbackGlyph = [UIImage systemImageNamed:@"ellipsis"];
-        objc_setAssociatedObject(container, &kMoreButtonKey, moreButton, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    if (moreButton.superview != container) [container addSubview:moreButton];
-    else if (container.subviews.lastObject != moreButton) [container bringSubviewToFront:moreButton];
-    if (more) [moreButton feedFrom:more];
-    moreButton.hidden = more == nil;
-    CGFloat top = container.window.safeAreaInsets.top + kCornerTop;
-    setFrame(moreButton, CGRectMake(container.bounds.size.width - kCornerSide - SGRActionHeight, top, SGRActionHeight, SGRActionHeight));
+    SGRPinnedMore(SGRArtistPageOf(container), &kMoreButtonKey, more);
 
     // Collapsing, the text would pass over Spotify's bar with the name in it: it goes over the last kFade of
-    // the collapse, from the header's own height, which this pass runs on every step of.
+    // the collapse, from the header's own height, which this pass runs on every step of. More stays: it is
+    // outside the header and has nothing to pass over.
     CGFloat alpha = MAX(0, MIN(1, (header.bounds.size.height - kBar) / kFade));
     if (fabs(info.alpha - alpha) > 0.01) info.alpha = alpha;
-    if (fabs(moreButton.alpha - alpha) > 0.01) moreButton.alpha = alpha;
 
     // The picture reaches to where the content's top is at rest, plus the name. The container keeps its
     // height as the header collapses, and only ever grows as the page loads.
@@ -306,7 +310,7 @@ static void applyHeader(UIView *header) {
         logged = YES;
         SGLog(@"redesign artist: own block \"%@\", \"%@\"; shuffle %@, play %@, follow %@, more %@", name,
               firstText(listeners) ?: @"no listeners", shuffle ? @"found" : @"missing", play ? @"found" : @"missing",
-              follow ? firstText(follow) ?: @"found" : @"missing", more ? @"found" : @"missing");
+              follow ? word ?: @"found, no word yet" : @"missing", more ? @"found" : @"missing");
     }
 }
 

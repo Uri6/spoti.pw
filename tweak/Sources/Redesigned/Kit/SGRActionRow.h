@@ -34,9 +34,15 @@
 @property (nonatomic, weak, readonly) UIView *source;
 // Drawn, in white, when Spotify's button has no image view to copy (a glyph it draws itself).
 @property (nonatomic, strong) UIImage *fallbackGlyph;
+// The colour to draw the mirrored glyph in, whatever colour Spotify drew it. nil, the default, keeps
+// Spotify's -- which is what a glyph that says something by its colour needs (shuffle turns the accent
+// colour while it is on). Set it for a glyph whose colour is only the weight Spotify gave the control it
+// sat in: Encore bakes the colour into the image it draws, so this re-renders the copy as a template.
+@property (nonatomic, copy) UIColor *glyphColor;
 // The word on Spotify's button instead of a glyph, in a glass capsule as wide as the word asks for: for a
 // text button such as the artist's Follow, whose word is its state ("Follow", "Following") in the app's
-// language. Set before the first -feedFrom:.
+// language. Until Spotify's button has a word, the fallback glyph is drawn in the round shape instead. Set
+// before the first -feedFrom:.
 @property (nonatomic) BOOL showsWord;
 // The width the button wants: SGRActionHeight for a glyph, the word and its padding for a word.
 - (CGFloat)sgr_width;
@@ -44,3 +50,19 @@
 // (shuffle turning on). Cheap to call again on every pass.
 - (void)feedFrom:(UIView *)source;
 @end
+
+// The ⋯ every redesigned entity page pins to its top trailing corner, level with the back button: one
+// button, one size, one place on the playlist, the album and the artist. It is added to `page` -- the
+// page's own root view, outside anything that scrolls -- so it stays where it is however far the page is
+// scrolled, which is what Spotify's own does not (the navigation bar's slot is emptied on the way down,
+// trees/continuous/1.txt 2026-09-20, issue #57) and what a button in a scrolling header cannot.
+//
+// `source` is Spotify's own ⋯, wherever the page keeps it; nil hides the button until one is found. Kept
+// on `page` under `key` and cheap to call again on every pass.
+SGRMirrorButton *SGRPinnedMore(UIView *page, const void *key, UIView *source);
+
+// A sheet opening within this long of a tap on a pinned ⋯ is that page's context menu.
+static const NSTimeInterval SGRPinnedMoreWindow = 3;
+// The page whose pinned ⋯ was tapped within that window, or nil: for a screen that puts rows of its own on
+// Spotify's context menu sheet and has to know which page the sheet belongs to.
+UIView *SGRPinnedMoreRecentPage(void);

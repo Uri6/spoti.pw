@@ -80,7 +80,6 @@ static NSString *longDate(NSString *published) {    // 18 September 2026
 @implementation SGUpdatePageController {
     NSArray<SGUpdateGroup *> *_groups;
     UIView *_intro;
-    UIView *_footer;
     NSTimer *_ticker;
 }
 
@@ -141,12 +140,10 @@ static NSArray<SGUpdateRelease *> *releasesToShow(void) {
     [groups addObject:group(nil, top)];
 
     SGUpdateRow *notice = [SGUpdateRow new];
-    notice.title = @"Tell me when one is out";
+    notice.title = @"Auto check updates";
     notice.symbol = @"bell";
     notice.key = SGKeyUpdateNotice;
-    SGUpdateGroup *told = group(nil, @[notice]);
-    told.footer = @"A release newer than this build brings this up once, a few seconds after Spotify opens.";
-    [groups addObject:told];
+    [groups addObject:group(nil, @[notice])];
 
     for (SGUpdateRelease *release in releasesToShow()) {
         NSMutableArray<NSString *> *kinds = [NSMutableArray array];
@@ -186,15 +183,12 @@ static NSArray<SGUpdateRelease *> *releasesToShow(void) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     _intro = SGNote([self introText]);
-    _footer = SGNote(@"Releases are cut from the commits, so every line here is one change and opens it on GitHub. The mod asks GitHub for them a few seconds after Spotify opens and whenever Mod Settings does, at most once every six hours.");
     self.tableView.tableHeaderView = _intro;
-    self.tableView.tableFooterView = _footer;
 }
 
 - (void)viewWillLayoutSubviews {
     [super viewWillLayoutSubviews];
     SGFitNote(self.tableView, _intro, 24, 0);
-    SGFitNote(self.tableView, _footer, 16, 24);
 }
 
 - (void)viewDidLayoutSubviews {

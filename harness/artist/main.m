@@ -1,6 +1,9 @@
 // A mock of Spotify's artist page under its own class names and accessibility identifiers, built from
 // trees/clean/artist/01.txt and 05.txt (recorded 2026-09-16), so Redesigned/Artist can be laid out and looked
-// at on the Mac. `collapsed` on the launch line shows the header scrolled into its 100pt bar.
+// at on the Mac. `collapsed` on the launch line shows the header scrolled into its 100pt bar; `late` holds
+// the Follow button's word and then the photo back, one after the other, the way a page opened for the first
+// time gets them -- each has to reach the redesign on its own (issue #52), and the artwork view carries
+// Encore's Swift class name so that it can only be watched the way the phone makes the Kit watch it.
 #import <UIKit/UIKit.h>
 
 #pragma mark - Spotify's classes, by name
@@ -44,6 +47,12 @@
 
 @interface MockButton : UIControl @end
 @implementation MockButton @end
+
+// Encore's image view, the one every picture Spotify loads arrives in (01.txt:48). Its name is the point of
+// the mock: a Swift one, which the Kit refuses to give an instance its own subclass of, so the harness
+// watches the photo the way the phone has to -- through an override on the class.
+@interface _TtC19LegacyUI_ECMCoreKitP33_3DFE6A8953CA91BDEBA7A38450631F5815EncoreImageView : UIImageView @end
+@implementation _TtC19LegacyUI_ECMCoreKitP33_3DFE6A8953CA91BDEBA7A38450631F5815EncoreImageView @end
 
 #pragma mark - building the tree
 
@@ -177,6 +186,7 @@ static NSArray<NSArray *> *musicList(void) {
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     CGFloat W = self.window.bounds.size.width, H = self.window.bounds.size.height;
     BOOL collapsed = [NSProcessInfo.processInfo.arguments containsObject:@"collapsed"];
+    BOOL late = [NSProcessInfo.processInfo.arguments containsObject:@"late"];
 
     UIViewController *root = [UIViewController new];
     root.view.backgroundColor = [UIColor colorWithRed:0.07 green:0.07 blue:0.07 alpha:1];
@@ -195,8 +205,9 @@ static NSArray<NSArray *> *musicList(void) {
     UIView *clip = box(header, UIView.class, CGRectMake(0, 0, W, collapsed ? 0 : 424.67), nil);
     clip.clipsToBounds = YES;
     UIView *artwork = box(clip, UIView.class, CGRectMake(-11.33, 0, 424.67, 424.67), @"Components.Header.UI.ArtworkImage");
-    UIImageView *picture = [[UIImageView alloc] initWithFrame:artwork.bounds];
-    picture.image = photo();
+    UIImageView *picture = [[_TtC19LegacyUI_ECMCoreKitP33_3DFE6A8953CA91BDEBA7A38450631F5815EncoreImageView alloc]
+                            initWithFrame:artwork.bounds];
+    if (!late) picture.image = photo();
     picture.accessibilityIdentifier = @"Components.Header.UI.ArtworkImage.ImageView";
     [artwork addSubview:picture];
     UIView *wash = box(clip, MockGradientView.class, CGRectMake(-11.33, 310.67, 424.67, 257.33), nil);
@@ -216,7 +227,8 @@ static NSArray<NSArray *> *musicList(void) {
     follow.layer.borderColor = UIColor.grayColor.CGColor;
     follow.layer.borderWidth = 1;
     follow.layer.cornerRadius = 16;
-    label(follow, CGRectMake(16, 8, 40, 16), @"Follow", 11, UIColor.whiteColor, @"Encore.Label");
+    UILabel *followWord = label(follow, CGRectMake(16, 8, 40, 16), late ? @"" : @"Follow", 11, UIColor.whiteColor, @"Encore.Label");
+    if (late) follow.accessibilityLabel = nil;
     [(UIControl *)follow addTarget:self action:@selector(toggleFollow:) forControlEvents:UIControlEventTouchUpInside];
     glyph(box(row, MockButton.class, CGRectMake(148, 0, 48, 48), @"Components.UI.ContextMenuButton-7n2wHs1TKAczGzO7Dd2rGr"), @"ellipsis", 12);
     glyph(box(row, MockButton.class, CGRectMake(278, 0, 48, 48), @"Components.UI.ShuffleButton"), @"shuffle", 12);
@@ -269,6 +281,19 @@ static NSArray<NSArray *> *musicList(void) {
 
     [self.window makeKeyAndVisible];
 
+    // The photo and the follow state land after the header has laid out, and neither lays it out again.
+    if (late) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            followWord.text = @"Follow";
+            follow.accessibilityLabel = @"Follow";
+            NSLog(@"[harness] late: \"Follow\" is in Spotify's header now");
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            picture.image = photo();
+            NSLog(@"[harness] late: the photo is in Spotify's header now");
+        });
+    }
+
     // What the Music list came to once every cell answered for itself and the dropped headings were asked
     // again: each cell's kind and height, top to bottom.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -286,6 +311,14 @@ static NSArray<NSArray *> *musicList(void) {
         UIView *card = band.subviews.lastObject;
         NSLog(@"[harness] carousel bg %@, fade masked %d, card bg %@", band.backgroundColor, fade.layer.mask != nil, card.backgroundColor);
         NSLog(@"[harness] strip a=%.2f, pages moved %.0f, list bg %@", strip.alpha, pages.transform.ty, list.backgroundColor);
+        // ⋯ is pinned to the page now, not to the header's container, so it holds its place as the page
+        // scrolls and the header collapses (issue #57), and it is the back button's 44pt glass.
+        UIView *pinned = nil;
+        for (UIView *sub in page.subviews) {
+            if ([NSStringFromClass(sub.class) isEqualToString:@"SGRMirrorButton"]) pinned = sub;
+        }
+        NSLog(@"[harness] pinned more: %@ on the page, a=%.2f",
+              pinned ? NSStringFromCGRect(pinned.frame) : @"MISSING", pinned.alpha);
     });
     return YES;
 }

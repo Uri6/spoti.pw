@@ -4,7 +4,7 @@ SRC=/Users/vojta/Documents/quick/custom_spotify/custom_spotify/tweak/Sources
 OUT=$(dirname "$0")/build
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/PlaylistHarness.app"
 
-for f in Redesigned/Playlist/PlaylistField.x Redesigned/Playlist/PlaylistHeader.x Redesigned/Playlist/PlaylistRows.x; do
+for f in Redesigned/Playlist/PlaylistField.x Redesigned/Playlist/PlaylistHeader.x Redesigned/Playlist/PlaylistRows.x Redesigned/Playlist/PlaylistMenu.x; do
     name=$(basename "$f" .x)
     "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done

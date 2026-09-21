@@ -10,9 +10,11 @@
 // Spotify's type and its spacing are left alone: the row is 64pt for a title of 18pt, and a larger font of
 // the Kit's would be cut off by the box the element framework measured for it.
 //
-// The pills over the first row of a playlist of one's own (Add, Mix, Notes, Video, Edit, Sort, Name &
-// details -- own-playlist/01.txt:33) are a cell of the list. ListUXPlatform_LayoutKit.ListLayout gives every
-// item its height, so the cell can only close up where the layout asks it how tall it wants to be.
+// The pills over the first row (own-playlist/01.txt:33) are a cell of the list: Add, Mix, Notes, Video,
+// Edit, Sort and Name & details. The row is closed up -- ListUXPlatform_LayoutKit.ListLayout gives every
+// item its height, so the cell can only close up where the layout asks it how tall it wants to be -- and
+// Sort and Mix are put on the ⋯ sheet instead (PlaylistMenu.x), where the rest of the row already is. The
+// cell is handed over as it lays out, so the sheet has Spotify's own buttons to fire.
 //
 // Not every cell of the list is a track row. Under the tracks Spotify puts the extender -- Recommended
 // songs, its rows and Refresh (ListUXPlatformConsumers_PlaylistExtenderImpl) -- and its heading and its
@@ -26,7 +28,7 @@
 // Under the text rather than the whole row, as the Music app draws it; the trailing end clears the page margin.
 static const CGFloat kHairline = 0.5, kHairlineGap = 12;
 
-static char kRowKey, kArtKey, kSubtitleKey, kLineKey;
+static char kRowKey, kArtKey, kSubtitleKey, kLineKey, kToolbarKey;
 
 static UIView *identified(UIView *root, NSString *identifier, const void *cacheKey) {
     return SGRFindByIdentifier(root, identifier, cacheKey);
@@ -90,12 +92,13 @@ static void applyRow(UIView *cell) {
     UIView *cell = (UIView *)self;
     if (!SGRPlaylistHeaderOf(cell)) return;
     SGRClearCellPaint(cell);
+    SGRPlaylistTakeCuration(cell);
     applyRow(cell);
 }
 
 - (UICollectionViewLayoutAttributes *)preferredLayoutAttributesFittingAttributes:(UICollectionViewLayoutAttributes *)attributes {
     UICollectionViewLayoutAttributes *result = %orig;
-    if (!SGRFindByIdentifier((UIView *)self, @"PlaylistCuration.Row.CurationActionsToolbar", NULL)) return result;
+    if (!SGRFindByIdentifier((UIView *)self, SGRPlaylistCurationIdentifier, &kToolbarKey)) return result;
     result.size = CGSizeMake(result.size.width, 0);
     ((UIView *)self).clipsToBounds = YES;
     static dispatch_once_t once;

@@ -11,9 +11,9 @@ A Theos tweak (Objective-C + Logos) injected into the decrypted Spotify iOS app.
   Home gradient, AMOLED switch, accent colour...).
 - **Redesigned**: the mod's own Liquid Glass look, from a clean sheet. It includes the glass tab bar,
   search field and now playing bar, the redesigned player and lyrics page with Apple Music style lyrics
-  always on, a decluttered Home, Search's categories on tinted glass, a Library with one large title and no
-  filter pills, the playlist, album and artist pages the way the Music app lays them out, black throughout, and its
-  own accent colour. No native tweak runs.
+  always on, a decluttered Home, Search's categories on tinted glass, a Library with one large title, the
+  playlist, album and artist pages the way the Music app lays them out with one pinned ⋯ over each, black
+  throughout, and its own accent colour. No native tweak runs.
 
 Anything that doesn't draw on Spotify's screens works the same under both: ads, privacy, lyrics
 sources, gestures, blocked artists, flags, Vibrations, Speed and pitch, and the Live Activity. Those

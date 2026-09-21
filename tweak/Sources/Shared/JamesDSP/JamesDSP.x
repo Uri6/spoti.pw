@@ -480,10 +480,25 @@ static void tend(void) {
     }
 }
 
+// The engine is read out once a second while it runs. With the switch off there is nothing in it to
+// read, so the source is suspended rather than left ticking for the rest of the app's life: the engine
+// is never freed, and a timer tied to its making would outlive every use of it. Only ever touched from
+// applyMaster, which is to say on applyQueue().
+static dispatch_source_t sg_tendTimer;
+static BOOL sg_tending;
+
+static void setTending(BOOL on) {
+    if (!sg_tendTimer || on == sg_tending) return;
+    sg_tending = on;
+    if (on) dispatch_resume(sg_tendTimer);
+    else dispatch_suspend(sg_tendTimer);
+}
+
 // The switch and the output's format: the engine made or moved to the output's rate, everything set when
 // it was, and the notify let in or kept out. Answers whether every effect was set.
 static BOOL applyMaster(void) {
     if (!SGDSPSwitch(SGKeyDSP)) {
+        setTending(NO);
         if (atomic_exchange(&sg_running, false)) SGLog(@"jamesdsp: off, Spotify's sound passes as it is");
         return NO;
     }
@@ -503,13 +518,12 @@ static BOOL applyMaster(void) {
         SGLog(@"jamesdsp: engine made at %.0f Hz, blocks of %d frames, so the sound is %.1f ms later", rate, kSGDSPEngineBlock,
               kSGDSPEngineBlock / rate * 1000);
         atomic_store(&sg_engine, engine);
-        static dispatch_source_t timer;
-        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, applyQueue());
-        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_SEC / 4);
-        dispatch_source_set_event_handler(timer, ^{
+        // A source comes up suspended; setTending below is what starts it.
+        sg_tendTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, applyQueue());
+        dispatch_source_set_timer(sg_tendTimer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_SEC / 4);
+        dispatch_source_set_event_handler(sg_tendTimer, ^{
             tend();
         });
-        dispatch_resume(timer);
         everything = YES;
     } else if (SGDSPEngineSampleRate(engine) != rate) {
         SGDSPEngineSetSampleRate(engine, rate);
@@ -523,6 +537,7 @@ static BOOL applyMaster(void) {
         atomic_store_explicit(&sg_running, true, memory_order_release);
         SGLog(@"jamesdsp: on");
     }
+    setTending(YES);
     return everything;
 }
 

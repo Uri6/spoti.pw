@@ -90,13 +90,16 @@ static SGRArtworkField *fieldIn(UIView *page) {
     SGRedesignForceFlags(@"playlist", @{
         // The page the trees were recorded with (trees/clean/playlist/02.txt).
         @"ios-feature-freetierplaylist.use_collection_view": @YES,
-        // The Music app keeps share and more out of the row under the cover; this is Spotify's own way of
-        // moving the more button up into the navigation bar, and the action row is laid out from whichever
-        // of the buttons it still finds, so it reads either way.
-        @"ios-feature-freetierplaylist.context_menu_in_navigation_bar_enabled": @YES,
+        // More stays in Spotify's own header row, concealed with the rest of the block, and the redesign
+        // pins its own glass ⋯ over the page (Kit/SGRActionRow.h). Moving it into the navigation bar --
+        // which this flag is Spotify's own way of doing, and which the redesign forced until 2026-09-20 --
+        // put it somewhere Spotify empties on the way down the page: scrolled, the bar's trailing slot held
+        // an empty 48x44 view and there was no ⋯ anywhere (trees/continuous/1.txt, issue #57).
+        @"ios-feature-freetierplaylist.context_menu_in_navigation_bar_enabled": @NO,
         // A row is a cover, a title and an artist. The video badge is none of them.
         @"ios-feature-freetierplaylist.hide_video_badge_for_tracks": @YES,
-        // The curation pills are collapsed (PlaylistRows.x); pinned they would be collapsed on every scroll.
+        // The curation row keeps Sort and Mix and gives the rest up to ⋯ (PlaylistRows.x). It scrolls away
+        // with the tracks rather than pinning itself over them, as the Music app's sort does.
         @"ios-feature-freetierplaylist.pin_curation_actions": @NO,
     });
     if (!SGRedesignedUI()) return;

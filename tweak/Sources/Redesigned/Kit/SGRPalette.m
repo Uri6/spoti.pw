@@ -201,10 +201,26 @@ static UIColor *tintOf(CGImageRef image, UIColor *surface) {
         for (int k = 0; k < 3; k++) linear[k] *= kTintLuminance / luminance;
     }
     CGFloat t = kTintShare;
-    return [UIColor colorWithRed:r * (1 - t) + toEncoded(linear[0]) * t
-                           green:g * (1 - t) + toEncoded(linear[1]) * t
-                            blue:b * (1 - t) + toEncoded(linear[2]) * t
-                           alpha:1];
+    CGFloat mixed[3] = {r * (1 - t) + toEncoded(linear[0]) * t,
+                        g * (1 - t) + toEncoded(linear[1]) * t,
+                        b * (1 - t) + toEncoded(linear[2]) * t};
+
+    // The colour mixed in is held under a luminance of 0.05 but has no floor, so a near-black cover mixes the
+    // surface *down*: the tile ends up darker than the untinted surface it was meant to be a step above, and a
+    // neutral one lands in the 1-10% grey band SGRAmoled.x turns pure black, which takes the whole card with
+    // it -- a black square lost on a black page (The Weeknd's Trilogy, Bieber's SWAG; issue #36). So a mix
+    // dimmer than the surface is lifted back to the surface's luminance, in linear light and by one factor
+    // across the channels, which leaves its hue where the mix put it. Lifting cannot clip: the target
+    // luminance is the surface's ~0.014, and the most one channel can carry of it is 0.014 / 0.0722.
+    CGFloat want = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    CGFloat lit[3] = {toLinear(mixed[0]), toLinear(mixed[1]), toLinear(mixed[2])};
+    CGFloat have = 0.2126 * lit[0] + 0.7152 * lit[1] + 0.0722 * lit[2];
+    if (have <= 0) return surface;
+    if (have < want) {
+        for (int k = 0; k < 3; k++) mixed[k] = toEncoded(MIN(1, lit[k] * want / have));
+    }
+
+    return [UIColor colorWithRed:mixed[0] green:mixed[1] blue:mixed[2] alpha:1];
 }
 
 @implementation SGRPalette

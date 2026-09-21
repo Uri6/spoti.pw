@@ -1,5 +1,9 @@
 // Spotify's now playing info passes through with the artist swapped for the current line, and a timer
 // sends it again each time the line changes. Spotify itself only ever sees its own dictionary back.
+//
+// The timer follows the playback rate rather than running from launch: a paused player's line does not
+// move, so working it out four times a second only wakes the phone. The lock screen keeps the line it
+// was left on until the sound starts again.
 #import <MediaPlayer/MediaPlayer.h>
 #import "Core/SGCore.h"
 #import "LockScreenLyrics.h"
@@ -18,6 +22,7 @@ static NSDictionary *sg_spotifyInfo;
 static CFAbsoluteTime sg_spotifyInfoAt;
 static NSString *sg_shownLine;
 static BOOL sg_resending;
+static NSTimer *sg_timer;
 
 static NSString *textOf(NSArray<SGKaraokeWord *> *words) {
     SGKaraokeLine *line = [SGKaraokeLine new];
@@ -103,6 +108,25 @@ static void tick(void) {
     sg_resending = NO;
 }
 
+// Main thread, as everything the timer touches is.
+static void setTicking(BOOL on) {
+    if (on == (sg_timer != nil)) return;
+    if (!on) {
+        [sg_timer invalidate];
+        sg_timer = nil;
+        return;
+    }
+    sg_timer = [NSTimer timerWithTimeInterval:kTick repeats:YES block:^(NSTimer *t) { tick(); }];
+    [NSRunLoop.mainRunLoop addTimer:sg_timer forMode:NSRunLoopCommonModes];
+}
+
+// Whether the sound is moving. A rate Spotify did not report at all counts as moving: the line would
+// stand still either way, and a missing key is no reason to leave the feature switched off for good.
+static BOOL playingBy(NSDictionary *info) {
+    NSNumber *rate = info[MPNowPlayingInfoPropertyPlaybackRate];
+    return !rate || rate.doubleValue > 0;
+}
+
 %hook MPNowPlayingInfoCenter
 - (void)setNowPlayingInfo:(NSDictionary *)info {
     if (sg_resending) {
@@ -114,12 +138,17 @@ static void tick(void) {
         sg_spotifyInfo = info;
         sg_spotifyInfoAt = now;
     }
+    BOOL playing = playingBy(info) && info[MPNowPlayingInfoPropertyElapsedPlaybackTime] != nil;
     // Karaoke's lyrics are main-thread state; off it the info goes out as it is and the next tick adds the line.
     if (!NSThread.isMainThread || !info[MPNowPlayingInfoPropertyElapsedPlaybackTime]) {
-        dispatch_async(dispatch_get_main_queue(), ^{ sg_shownLine = nil; });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            sg_shownLine = nil;
+            setTicking(playing);
+        });
         %orig;
         return;
     }
+    setTicking(playing);
     double elapsed = elapsedAt(info, now, now);
     NSString *line = lineFor(info, elapsed);
     sg_shownLine = line;
@@ -139,7 +168,6 @@ static void tick(void) {
     if (!SGFlag(SGKeyLockScreenLyrics, NO)) return;
     sg_lock = [NSObject new];
     %init;
-    NSTimer *timer = [NSTimer timerWithTimeInterval:kTick repeats:YES block:^(NSTimer *t) { tick(); }];
-    [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+    // The timer waits for Spotify to report a playing track; nothing before that has a line to show.
     SGLog(@"lock screen lyrics: on");
 }

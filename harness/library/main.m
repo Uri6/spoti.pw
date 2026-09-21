@@ -299,8 +299,12 @@ static UIView *chips(UIView *filters) {
         if ([sub isMemberOfClass:UILabel.class]) title = (UILabel *)sub;
     }
     CGFloat textRight = title ? CGRectGetMinX(title.frame) + MIN(title.bounds.size.width, [title.text sizeWithAttributes:@{NSFontAttributeName: title.font}].width) : 0;
-    HLog(@"%@: %@; title text %.0f-%.0f, header %.0fpt, list inset %.0f", moment, [parts componentsJoinedByString:@", "],
-         CGRectGetMinX(title.frame), textRight, header.bounds.size.height, self.page.list.contentInset.top);
+    UIView *filters = [header valueForKey:@"filters"];
+    HLog(@"%@: %@; title text %.0f-%.0f, header %.0fpt, list inset %.0f, chips %@", moment,
+         [parts componentsJoinedByString:@", "], CGRectGetMinX(title.frame), textRight,
+         header.bounds.size.height, self.page.list.contentInset.top,
+         !filters ? @"missing" : (filters.alpha < 0.5 ? @"HIDDEN" : [NSString stringWithFormat:@"%.0fpt at y=%.0f",
+                                  filters.bounds.size.height, filters.frame.origin.y]));
 }
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
