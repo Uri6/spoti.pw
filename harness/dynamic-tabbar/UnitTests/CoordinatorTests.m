@@ -138,11 +138,14 @@
     SGRDynamicBarUpdateTabs(self.tabs, self.stock, self.mirror, sources, ^(UIView *source) {
         XCTAssertEqual(source, scroll);
         self.tabs.selectedViewController = next;
-        self.mirror.selectedItem = self.mirror.items[1];
+        // The real controller has changed, but Spotify's old label is still painted selected.
+        // Native selection must not wait for the mirror's 250 ms repaint fallback.
     });
     [host.delegate dynamicBarHost:host didSelectIndex:1];
     XCTAssertEqual(self.host, host);
     XCTAssertEqual(host.observedScrollView, scroll);
+    XCTAssertEqual(host.tabController.selectedIndex, 1);
+    SGRDynamicBarUpdatePlayer(self.player, self.card, self.glass); // stale mirror cannot roll selection back
     XCTAssertEqual(host.tabController.selectedIndex, 1);
     XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
     XCTAssertEqual(self.player.parentViewController, self.tabs);

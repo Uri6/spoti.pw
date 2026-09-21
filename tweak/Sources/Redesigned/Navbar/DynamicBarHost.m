@@ -84,7 +84,7 @@
         self.scrollDriver.tabController = self.tabController;
         self.scrollDriver.scrollView = self.observedScrollView;
         self.scrollDriver.permitted = self.permitsMinimization;
-        self.tabController.tabBarMinimizeBehavior = self.permitsMinimization ?
+        self.tabController.tabBarMinimizeBehavior = self.scrollDriver.permitted ?
             UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
         self.slot = [SGRAccessorySlot new];
         self.slot.owner = self;
@@ -135,7 +135,15 @@
 - (BOOL)tabBarController:(UITabBarController *)controller shouldSelectViewController:(UIViewController *)viewController {
     if (self.holding) return NO;
     NSUInteger index = [controller.viewControllers indexOfObject:viewController];
-    if (index != NSNotFound) [self.delegate dynamicBarHost:self didSelectIndex:index];
+    if (index != NSNotFound) {
+        // Complete UIKit's own selection callback before Spotify navigates and rebinds us.
+        // Reentrant selectedIndex/layout changes here fight the native selection animation.
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SGRDynamicBarHost *host = weakSelf;
+            if (host.viewIfLoaded.window && !host.holding) [host.delegate dynamicBarHost:host didSelectIndex:index];
+        });
+    }
     // Selection follows the actual application after it accepts the original action.
     return NO;
 }

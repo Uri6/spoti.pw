@@ -26,6 +26,8 @@ static CGRect presentationRect(UIView *view) {
     _player = player; _accessory = accessory; _status = status;
     status.accessibilityLabel = @"expansion-motion-0";
     _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(sample:)];
+    float maximum = player.window.screen.maximumFramesPerSecond;
+    if (maximum > 0) _link.preferredFrameRateRange = CAFrameRateRangeMake(MIN(80, maximum), maximum, maximum);
     [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
     return self;
 }

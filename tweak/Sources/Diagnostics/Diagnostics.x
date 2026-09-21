@@ -160,11 +160,14 @@ static void startTreeServer(void) {
     %init;
     SGRequireClasses(@[@"_TtC21NowPlaying_ScrollImpl23NPVScrollViewController"]);
     SGLog(@"loaded, UIGlassEffect %@", NSClassFromString(@"UIGlassEffect") ? @"available" : @"missing");
-    if (SGIsDebugBuild()) {
+    // FLEX can be loaded after this tweak's constructor. Check once the loader has returned
+    // to the main queue so a diagnostic install cannot silently lose its USB endpoint.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!SGIsDebugBuild()) return;
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
             SGDumpScreen(@"on background");
         }];
         startTreeServer();
         SGLog(@"debug build: backgrounding the app dumps the visible screen's view tree");
-    }
+    });
 }

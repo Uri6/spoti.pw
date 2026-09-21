@@ -1,4 +1,5 @@
 #import "DynamicBarScrollDriver.h"
+#import "DynamicBarExpansion.h"
 #import <QuartzCore/QuartzCore.h>
 #include <math.h>
 
@@ -30,21 +31,25 @@
     [scrollView.panGestureRecognizer addTarget:self action:@selector(pan:)];
 }
 - (void)setPermitted:(BOOL)permitted {
-    if (_permitted == permitted) return;
-    _permitted = permitted;
-    _travel = 0;
     if (@available(iOS 26.0, *)) {
-        self.tabController.tabBarMinimizeBehavior = permitted ?
-            UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
+        permitted = permitted && SGRDynamicBarCanExpand(self.tabController.tabBar);
+        UITabBarMinimizeBehavior policy = permitted ? UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
+        if (_permitted == permitted && self.tabController.tabBarMinimizeBehavior == policy) return;
+        _permitted = permitted;
+        _travel = 0;
+        self.tabController.tabBarMinimizeBehavior = policy;
     }
 }
-// Observe the reversal for diagnostic frames only. Changing the minimize policy here
-// cancels UIKit's interactive transition; on device it lays out with animations disabled.
+// Keep the scrolling policy intact. A short reverse drag needs an explicit native expansion;
+// UIKit's automatic reversal otherwise waits until the page reaches its leading edge.
 - (void)recordExpansionIntent {
     if (!self.diagnosticEvent || _diagnosticLink) return;
     self.diagnosticEvent(@"native expansion intent");
     _diagnosticStart = CACurrentMediaTime();
     _diagnosticLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleExpansion:)];
+    // A diagnostic observer must not reduce ProMotion's cadence while a transition runs.
+    float maximum = self.tabController.view.window.screen.maximumFramesPerSecond;
+    if (maximum > 0) _diagnosticLink.preferredFrameRateRange = CAFrameRateRangeMake(MIN(80, maximum), maximum, maximum);
     [_diagnosticLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
@@ -64,11 +69,21 @@
     if (!self.permitted || !isfinite(delta) || bottom - top < 32) return;
     CGPoint velocity = [pan velocityInView:scroll];
     if (fabs(velocity.x) > fabs(velocity.y)) return;
-    if (offset <= top + 1) { _travel = 0; [self recordExpansionIntent]; return; }
+    if (offset <= top + 1) {
+        _travel = 0;
+        if (SGRDynamicBarIsMinimized(self.tabController.tabBar)) {
+            [self recordExpansionIntent];
+            SGRDynamicBarExpand(self.tabController, YES);
+        }
+        return;
+    }
     if (delta == 0) return; // No intent from rubber-banding beyond either edge.
     if ((_travel > 0 && delta < 0) || (_travel < 0 && delta > 0)) _travel = 0;
     _travel += delta;
-    if (_travel < -8) [self recordExpansionIntent];
+    if (_travel < -8 && SGRDynamicBarIsMinimized(self.tabController.tabBar)) {
+        [self recordExpansionIntent];
+        SGRDynamicBarExpand(self.tabController, YES);
+    }
 }
 - (void)invalidate {
     [_diagnosticLink invalidate]; _diagnosticLink = nil;

@@ -12,7 +12,7 @@
 @end
 
 // A contained UIKit chrome controller. Its children are presentation proxies; the real application
-// page and live player retain their existing controller/view ownership. Only public UIKit APIs.
+// page and live player retain their existing controller/view ownership. Native presentation with a guarded expansion compatibility bridge.
 @interface SGRDynamicBarHost : UIViewController
 @property(nonatomic, weak) id<SGRDynamicBarHostDelegate> delegate;
 @property(nonatomic, weak) UIScrollView *observedScrollView;

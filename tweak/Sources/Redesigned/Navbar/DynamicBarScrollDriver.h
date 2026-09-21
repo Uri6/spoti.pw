@@ -1,8 +1,8 @@
 #import <UIKit/UIKit.h>
 
-// Keeps the native minimize policy stable for the lifetime of an eligible host. The real
-// page remains the designated content scroll view; UIKit owns both transition directions.
-// The existing pan recognizer is observed only for bounded diagnostic sampling.
+// Keeps the native minimize policy stable. A verified compatibility bridge expands the native
+// bar on a reverse drag without the policy reset that cancels the animation on iOS 27.
+// The real scroll delegate, gestures and application containment remain unchanged.
 @interface SGRDynamicBarScrollDriver : NSObject
 @property(nonatomic, weak) UITabBarController *tabController;
 @property(nonatomic, weak) UIScrollView *scrollView;

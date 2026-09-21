@@ -25,8 +25,8 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
   Native selection is forwarded to the original tab sources, and its accepted selection is mirrored
   back. Home's long press uses the existing Mod Settings action.
 - `DynamicBarScrollDriver` observes the existing pan recognizer without replacing its delegate.
-  An upward drag expands through the public `.never` behavior inside a spring animation; the end of the gesture restores
-  `.onScrollDown` before the next gesture begins. This was needed for repeatable cycles in the probe.
+  The r12 candidate uses the verified native minimized-state setter to expand without changing
+  `.onScrollDown` during a gesture or at its end.
 - `LiveBarLayout` leases the original player's layout. `LiveBarConstraints` recognizes the captured
   9.1.78 audio profile: four root edge pins, 56-point root/card heights, and artwork with 8-point
   vertical padding. It temporarily replaces root placement constraints and adjusts card height and
@@ -53,7 +53,9 @@ The public UIKit APIs are `UITabBarController.tabBarMinimizeBehavior`, `UITabAcc
 `bottomAccessory`, `UITraitCollection.tabAccessoryEnvironment`, and
 `UIViewController.setContentScrollView(_:for:)`. See [Apple's UIKit demonstration](https://developer.apple.com/videos/play/wwdc2025/284/)
 and [content scroll-view documentation](https://developer.apple.com/documentation/uikit/uiviewcontroller/setcontentscrollview(_:for:)).
-A standalone `UITabBar` cannot provide this behavior by itself.
+A standalone `UITabBar` cannot provide this behavior by itself. Short upward reversals additionally
+use the isolated, signature-checked private UIKit expansion bridge documented below; this is not a
+public Apple API and must be validated on each supported runtime.
 
 Accessibility fallback observes Apple's documented status notifications and capabilities in
 [UIAccessibility](https://developer.apple.com/documentation/uikit/uiaccessibility).
@@ -224,3 +226,31 @@ Ordinary tab actions retain the native host and live constraint lease instead of
 tearing them down; the existing transition, eligibility and geometry checks still release them.
 Two coordinator regressions cover reselection and accepted navigation without host replacement.
 Native reversal on the simulator and actual iPhone must pass before this candidate is accepted.
+
+### r11 result and r12 expansion compatibility bridge
+
+r11 passed all 66 unit tests but failed all four UI reversal checks on iOS 26.5. Physical testing
+also distinguishes smooth automatic expansion at the beginning of a page from short upward
+scrolls deep inside Library, where the native bar stays minimized. Therefore native automatic
+behavior alone is insufficient for the requested interaction.
+
+r12 isolates the private UIKit `_isMinimized` / `_setMinimized:` contract in `DynamicBarExpansion`.
+The exact BOOL/void signatures were read from Apple's installed UIKit runtime and are checked on
+the actual bar before every call. This revises the original public-API-only plan: the public
+minimize-policy setter is unsuitable as an animated expansion command on the physical runtime.
+Only our own native tab bar is affected; Spotify's views, controllers, gestures, video surface,
+and navigation actions remain their original objects. No UIKit methods are hooked, no view
+hierarchy or ivar is inspected, and no synthetic tap/scroll is sent. If the contract is missing
+or changes, minimization is disabled. The scrolling policy remains `.onScrollDown` across the
+explicit expansion. Actual swipe tests remain mandatory; metadata compatibility alone proves
+neither animation nor future-OS support.
+
+Both the diagnostic observer and harness frame sampler request the screen's available refresh
+rate instead of leaving a default 60-Hz display link active during ProMotion transitions.
+
+The user still reports slow/buggy page changes in r11. r12 additionally defers the original action
+until UIKit's selection callback returns, and mirrors accepted controller identity immediately
+instead of waiting for Spotify's label color and the 250 ms fallback repaint. Rejected actions do
+not optimistically select a new page. Diagnostic counters measure refresh cost and time spent in
+the original navigation action, so remaining stalls can be attributed on the phone. USB diagnostics
+start after dylib loading finishes to avoid an initialization race with FLEX.

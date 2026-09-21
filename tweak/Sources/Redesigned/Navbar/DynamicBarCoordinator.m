@@ -39,6 +39,9 @@ static BOOL enabled(void) {
 @property(nonatomic, strong) SGRLiveBarLayout *layout;
 @property(nonatomic, strong) NSHashTable *transitions;
 @property(nonatomic, strong) NSHashTable *mediaChanges;
+@property(nonatomic, strong) NSMapTable<UIViewController *, UIView *> *acceptedSelections;
+@property(nonatomic) NSUInteger refreshCount;
+@property(nonatomic) CFTimeInterval refreshTotal, refreshWorst;
 @property(nonatomic) CGRect naturalCard;
 @property(nonatomic) BOOL updating;
 @property(nonatomic) BOOL refreshQueued;
@@ -55,6 +58,7 @@ static BOOL enabled(void) {
 @property(nonatomic) BOOL diagnosticInline;
 - (void)recordEvent:(NSString *)event;
 - (void)refresh;
+- (void)refreshContent;
 - (void)detach;
 @end
 
@@ -63,6 +67,7 @@ static BOOL enabled(void) {
     if ((self = [super init])) {
         _transitions = [NSHashTable weakObjectsHashTable];
         _mediaChanges = [NSHashTable weakObjectsHashTable];
+        _acceptedSelections = [NSMapTable weakToWeakObjectsMapTable];
         _diagnosticEvents = [NSMutableArray array];
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         for (NSNotificationName name in @[UIApplicationWillResignActiveNotification, UIApplicationDidBecomeActiveNotification,
@@ -119,6 +124,18 @@ static BOOL enabled(void) {
     [self.player.viewIfLoaded setNeedsLayout];
 }
 - (void)refresh {
+    BOOL diagnostic = NSClassFromString(@"FLEXManager") != nil;
+    CFTimeInterval began = diagnostic ? CACurrentMediaTime() : 0;
+    [self refreshContent];
+    if (diagnostic) {
+        CFTimeInterval elapsed = CACurrentMediaTime() - began;
+        self.refreshCount++;
+        self.refreshTotal += elapsed;
+        self.refreshWorst = MAX(self.refreshWorst, elapsed);
+        if (elapsed > 0.0167) [self recordEvent:[NSString stringWithFormat:@"slow refresh %.1f ms", elapsed * 1000]];
+    }
+}
+- (void)refreshContent {
     if (self.updating || self.layout.applying) return;
     if (!CGSizeEqualToSize(self.lastSize, self.window.bounds.size)) {
         self.lastSize = self.window.bounds.size;
@@ -142,7 +159,11 @@ static BOOL enabled(void) {
     if (!scroll) blockers |= SGRDynamicBarNoScrollOwner;
     if (!self.card || !self.player) blockers |= SGRDynamicBarUnknownContent;
     else blockers |= SGRDynamicBarContentBlockers(self.player);
-    NSUInteger index = self.mirror.selectedItem ? [self.mirror.items indexOfObject:self.mirror.selectedItem] : NSNotFound;
+    // Spotify accepts navigation before it repaints its tab labels (the mirror's fallback
+    // refresh waits 250 ms). Follow confirmed controller identity without guessing acceptance.
+    UIView *accepted = [self.acceptedSelections objectForKey:selected];
+    NSUInteger index = accepted ? [self.sources indexOfObjectIdenticalTo:accepted] : NSNotFound;
+    if (index == NSNotFound) index = self.mirror.selectedItem ? [self.mirror.items indexOfObject:self.mirror.selectedItem] : NSNotFound;
     if (index == NSNotFound || index >= self.sources.count || self.sources.count > 5) blockers |= SGRDynamicBarUnknownContent;
     CGRect natural = self.layout ? self.naturalCard : [self.player.view convertRect:self.card.bounds fromView:self.card];
     SGRDynamicBarContext context = {blockers, self.window.bounds.size.width - 112, 240, natural.size.height};
@@ -189,7 +210,14 @@ static BOOL enabled(void) {
     // An ordinary tab action does not take a player snapshot. Keep UIKit's chrome and
     // the live layout lease; the accepted stock selection rebinds the selected proxy.
     // Actual player transitions, unknown pages and incompatible layouts still detach.
+    UIViewController *before = [self.tabs respondsToSelector:@selector(selectedViewController)] ? [(id)self.tabs selectedViewController] : nil;
+    NSUInteger oldIndex = host.tabController.selectedIndex;
+    if (before && oldIndex < self.sources.count) [self.acceptedSelections setObject:self.sources[oldIndex] forKey:before];
+    CFTimeInterval began = CACurrentMediaTime();
     if (self.select) self.select(source);
+    UIViewController *after = [self.tabs respondsToSelector:@selector(selectedViewController)] ? [(id)self.tabs selectedViewController] : nil;
+    if (after && after != before) [self.acceptedSelections setObject:source forKey:after];
+    [self recordEvent:[NSString stringWithFormat:@"tab action returned %.1f ms accepted=%d", (CACurrentMediaTime() - began) * 1000, after != before]];
     [self refresh];
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
@@ -379,6 +407,7 @@ static void appendDiagnosticState(NSMutableString *out, BOOL launchEnabled) {
     for (SGRDynamicBarSession *value in sg_sessions.allObjects) {
         UIViewController *selected = [value.tabs respondsToSelector:@selector(selectedViewController)] ? [(id)value.tabs selectedViewController] : nil;
         UIScrollView *scroll = SGRDynamicBarScrollOwner(selected);
+        [out appendFormat:@"refresh calls=%lu total-ms=%.1f worst-ms=%.1f\n", (unsigned long)value.refreshCount, value.refreshTotal * 1000, value.refreshWorst * 1000];
         [out appendFormat:@"session host=%d updating=%d failed-placement=%d last-blockers=0x%x content-blockers=0x%x rejection=%@\n",
             value.host != nil, value.updating, value.failedPlacement, value.lastBlockers,
             SGRDynamicBarContentBlockers(value.player), value.lastRejection ?: @"none"];
