@@ -1,6 +1,7 @@
 // Public-API feasibility probe, not a mock of Spotify's player or proof of Spotify integration.
 #import <UIKit/UIKit.h>
 #import "FixtureAudioPlayer.h"
+#import "ProbeExpansionMotion.h"
 #import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarScrollDriver.h"
 #import "../../../tweak/Sources/Redesigned/Navbar/DynamicBarHost.h"
 #import "../../../tweak/Sources/Redesigned/NowPlayingBar/LiveBarLayout.h"
@@ -84,6 +85,7 @@
 @property(nonatomic, strong) UIViewController *originalPlayer;
 @property(nonatomic, strong) ProbeAccessory *livePlayer;
 @property(nonatomic, strong) FixtureAudioPlayer *constrainedPlayer;
+@property(nonatomic, strong) ProbeExpansionMotion *motion;
 @property(nonatomic, strong) SGRLiveBarLayout *liveLayout;
 @property(nonatomic, copy) NSArray<UITabBarItem *> *items;
 @end
@@ -121,6 +123,10 @@
     self.tabs.view.backgroundColor = UIColor.clearColor;
     [host addSubview:self.tabs.view];
     [self.tabs didMoveToParentViewController:self];
+}
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [self.motion invalidate];
 }
 - (void)installProjectedPlayer {
     [self addChildViewController:self.page];
@@ -164,6 +170,7 @@
         self.originalPlayer.view = self.constrainedPlayer.source;
         ((ProbePassthrough *)self.originalPlayerParent.view).accessory = self.constrainedPlayer.source;
         [self.originalPlayer didMoveToParentViewController:self.originalPlayerParent];
+        self.motion = [[ProbeExpansionMotion alloc] initWithPlayer:self.constrainedPlayer.card accessory:self.chrome.tabController.bottomAccessory.contentView status:self.constrainedPlayer.status];
         return;
     }
     self.livePlayer = [ProbeAccessory new];

@@ -38,6 +38,11 @@ final class MinimizationTests: XCTestCase {
         end.press(forDuration: 0.05, thenDragTo: start)
         let expanded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'regular'"), object: status)
         XCTAssertEqual(XCTWaiter.wait(for: [expanded], timeout: 5), .completed)
+        if mode == "constrained" {
+            let motion = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "expansion-motion-\(cycle)"), object: status)
+            XCTAssertEqual(XCTWaiter.wait(for: [motion], timeout: 3), .completed,
+                           "Expansion must include multiple intermediate frames aligned with the native accessory")
+        }
         XCTAssertTrue(app.tabBars.buttons["Library"].isHittable)
         }
         let library = app.tabBars.buttons["Library"]

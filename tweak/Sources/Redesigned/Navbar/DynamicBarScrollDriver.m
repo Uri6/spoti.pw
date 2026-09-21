@@ -10,7 +10,7 @@
     _scrollView = scrollView;
     _travel = 0;
     [scrollView.panGestureRecognizer addTarget:self action:@selector(pan:)];
-    [self expand];
+    [self expandAnimated:NO];
 }
 - (void)setPermitted:(BOOL)permitted {
     if (_permitted == permitted) return;
@@ -21,8 +21,21 @@
             UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
     }
 }
-- (void)expand {
-    if (@available(iOS 26.0, *)) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
+- (void)expandAnimated:(BOOL)animated {
+    if (@available(iOS 26.0, *)) {
+        UITabBarController *controller = self.tabController;
+        if (!controller || controller.tabBarMinimizeBehavior == UITabBarMinimizeBehaviorNever) return;
+        void (^changes)(void) = ^{
+            controller.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
+            // Keep native chrome and the original player's constraint lease in one transaction.
+            [controller.view layoutIfNeeded];
+        };
+        if (!animated || UIAccessibilityIsReduceMotionEnabled() || !controller.viewIfLoaded.window) { changes(); return; }
+        [controller.view layoutIfNeeded];
+        [UIView animateWithDuration:0.36 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
+                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                         animations:changes completion:nil];
+    }
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
     UIScrollView *scroll = self.scrollView;
@@ -46,14 +59,14 @@
     }
     CGFloat delta = offset - _lastOffset;
     _lastOffset = offset;
-    if (!self.permitted || !isfinite(delta) || bottom - top < 32) { [self expand]; return; }
+    if (!self.permitted || !isfinite(delta) || bottom - top < 32) { [self expandAnimated:NO]; return; }
     CGPoint velocity = [pan velocityInView:scroll];
     if (fabs(velocity.x) > fabs(velocity.y)) return;
-    if (offset <= top + 1) { _travel = 0; [self expand]; return; }
+    if (offset <= top + 1) { _travel = 0; [self expandAnimated:YES]; return; }
     if (delta == 0) return; // No intent from rubber-banding beyond either edge.
     if ((_travel > 0 && delta < 0) || (_travel < 0 && delta > 0)) _travel = 0;
     _travel += delta;
-    if (_travel < -8) [self expand];
+    if (_travel < -8) [self expandAnimated:YES];
     else if (_travel > 24) {
         if (@available(iOS 26.0, *)) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
     }
