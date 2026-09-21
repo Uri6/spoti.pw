@@ -83,17 +83,17 @@ summaries/attachments, and preserves the test command's exit status. Full Theos 
 the result into the privately supplied Spotify 9.1.78 IPA; the app binary and recordings stay out of
 the public repository.
 
-Verified revision: `33b012ea636bee6df875ab36a80bd615d040fd08` (r5), 2026-09-21. Private run
-`35548654220` completed with **53 passed, 0 failed, 0 skipped**, and built the full diagnostic IPA
-from the same commit. The previous r4 52-test result is historical and did not pass physical
+Verified revision: `8c131eadd122353e14687e3e13ab0d59f9ea8393` (r6), 2026-09-21. Private run
+`35550153517` completed with **64 passed, 0 failed, 0 skipped**, and built the full diagnostic IPA
+from the same commit. This includes the upstream main merge already present in the user fork. The previous r4 52-test result is historical and did not pass physical
 acceptance; see the device findings below.
 
 | Check | Result |
 | --- | --- |
-| Live layout lease and fitting | 21 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
-| Content and scroll capability inspection | 18 UIKit unit tests passed, including the captured ElementView audio identities |
-| Coordinator interruption, readiness, restoration and read-only diagnostics | 11 UIKit unit tests passed |
-| Native-owned, externally-owned and constrained-player scrolling | 3 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
+| Live layout lease and fitting | 25 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
+| Content and scroll capability inspection | 21 UIKit unit tests passed, including the captured ElementView audio identities |
+| Coordinator interruption, readiness, restoration and read-only diagnostics | 14 UIKit unit tests passed |
+| Native-owned, externally-owned, constrained audio and video scrolling | 4 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
 | Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
 | Layer boundaries and patch whitespace | Passed |
 | Full Theos compile, package and IPA injection | Passed with the private Spotify 9.1.78 input |
@@ -166,5 +166,5 @@ not yet a physical result.
 
 The video candidate adds landscape/portrait aspect fixtures, surface/layer/parent identity checks,
 external dimension replacement and surface detachment, positive video eligibility, nested lifecycle
-suspension, and a fourth native gesture UI scenario. Its run and device findings will be recorded
-after completion. The fixture uses a generic colored view, not an actual decoder.
+suspension, and a fourth native gesture UI scenario. All 64 tests passed in the r6 run above; real video playback and audio/video switching still need
+physical verification. The fixture uses a generic colored view, not an actual decoder.
