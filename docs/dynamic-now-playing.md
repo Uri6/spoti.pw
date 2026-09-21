@@ -16,8 +16,8 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
 - `DynamicBarCapabilities` inspects existing, loaded controllers/views without loading more views.
   It requires visible audio identities, or a known video controller with its live surface and track
   information inside the same stock card. Unknown video, attachment, Jam badge and hat identities fall back. It finds a single dominant vertical scroll view on the selected page; ambiguous
-  layouts fail closed. Audio and video identities were captured on 9.1.78/iOS 27; video layout and lifecycle
-  integration still need device verification. Class identity checks handle
+  layouts fail closed. Audio and video identities were captured on 9.1.78/iOS 27; the user confirmed video collapse in r9. Full audio/video lifecycle
+  coverage still needs device verification. Class identity checks handle
   Swift runtime/display naming without equating mangled binary names with `NSStringFromClass`.
 - `DynamicBarPolicy` rejects unsuitable width, height and interruption states without UIKit.
 - `DynamicBarHost` is an added child with a real `UITabBarController`, presentation-only child
@@ -64,8 +64,8 @@ Accessibility fallback observes Apple's documented status notifications and capa
 
 | Case | Current behavior / limit |
 | --- | --- |
-| Ordinary audio | Attempts native compact hosting only when positive identities and measured layout fit. User confirmed collapse/expand on physical r5; upward animation was abrupt and is corrected in the next candidate. |
-| Captured live video profile | Candidate preserves the original surface and aspect through compact hosting. Real playback and audio/video switches await device validation. |
+| Ordinary audio | Attempts native compact hosting only when positive identities and measured layout fit. User confirmed collapse on physical r5. Upward animation still jumped in r9/r10; r11 only expands automatically at the page top. r13 awaits physical validation. |
+| Captured live video profile | The user confirmed live video collapse in r9. The original surface and aspect are preserved; the complete switching/lifecycle matrix remains outstanding. |
 | Unknown video, Jam badge, attachments, extra hat content | Restores the existing expanded bars when detected. |
 | Unknown hierarchy, fixed/non-fitting card, clipping/transformed ancestor | Keeps the existing presentation; no guessed selectors or edits to unrecognized constraint profiles. |
 | Keyboard, full player, transition, inactive app, hidden stock bar | Suspends presentation and restores owned geometry. Actual Spotify transition/cancellation timing remains unverified. |
@@ -85,21 +85,22 @@ summaries/attachments, and preserves the test command's exit status. Full Theos 
 the result into the privately supplied Spotify 9.1.78 IPA; the app binary and recordings stay out of
 the public repository.
 
-Verified revision: `02ab166cdc23cc32888c298b0db93a0cc9f3bc69` (r7), 2026-09-21. Private run
-`35550785180` completed with **65 passed, 0 failed, 0 skipped**, and built the full diagnostic IPA
-from the same commit. This includes the upstream main merge already present in the user fork. The previous r4 52-test result is historical and did not pass physical
-acceptance; see the device findings below.
+Latest completed full build and simulator validation: `0bc1dba3e5c67c6adfc22add0df9fbbb68448b7e`
+(r13 base), 2026-09-21. Private run `35595905511` passed **72 tests, 0 failures, 0 skips** and
+built the diagnostic IPA. All four UI scenarios passed their repeated collapse/expand, original
+control-action and tab-selection checks; constrained audio and video also passed intermediate-frame
+alignment checks. The earlier first r13 probe also passed 72 tests, while its full build caught
+missing deployment-target availability guards; those were fixed before the successful full build.
 
-| Check | Result |
-| --- | --- |
-| Live layout lease and fitting | 26 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
-| Content and scroll capability inspection | 21 UIKit unit tests passed, including the captured ElementView audio identities |
-| Coordinator interruption, readiness, restoration and read-only diagnostics | 14 UIKit unit tests passed |
-| Native-owned, externally-owned, constrained audio and video scrolling | 4 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
-| Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
-| Layer boundaries and patch whitespace | Passed |
-| Full Theos compile, package and IPA injection | Passed with the private Spotify 9.1.78 input |
-| Physical Spotify runtime | User confirmed audio collapse/expand in r5. Expansion animation was abrupt; video fell back as designed and is now an explicit support requirement. r6 video still rejected its layout; r7 admitted that profile but still rejected it during layout; r8 identified replacement of an equivalent aspect constraint. |
+The follow-up `59f353a24f6908abedca7ca92422899489fdf6ec` preserves expansion during repeated
+eligibility refreshes and adds one regression. Its local compatibility compile, layer checks and
+whitespace checks pass. Run `35596062235` **did not start either job**: GitHub reported failed recent
+account payments or a spending-limit restriction. Its expected 73-test suite and complete IPA build
+are therefore **not validated**. No billing settings were changed.
+
+The physical iPhone remains on r11. Mirroring returned to its Touch ID lock after reconnecting, and
+USB/network device discovery currently finds no phone. Neither r12 nor r13 was installed. Real
+mid-page expansion, video reversal and page-switch responsiveness remain open acceptance items.
 
 The test command uses `pipefail`; its outcome and the exported individual test counts were checked
 separately. The final source revision is recorded so documentation-only follow-ups are not mistaken
@@ -269,3 +270,10 @@ called, including on other threads. The scope ends in `@finally` before the expl
 This is a scoped method interception, not a private expansion API. Nonanimated and Reduce Motion
 paths do not enter the scope. The diagnostic trace counts intercepted wrappers so the hypothesis
 can be verified on the physical runtime; real gesture and isolation tests remain required.
+
+
+Ordinary eligibility refreshes must not re-arm `.onScrollDown` during an upward gesture. r13
+keeps the expansion policy until gesture end, or until a different scroll owner replaces the old
+pan target. The regression test repeats eligibility and owner updates during an expansion request
+and checks that only a real owner change re-arms minimization. Local Catalyst compilation with an
+iOS 16.1 deployment floor also validates availability guards; this does not replace the iPhone build.
