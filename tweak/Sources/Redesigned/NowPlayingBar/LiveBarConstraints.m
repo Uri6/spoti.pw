@@ -19,6 +19,23 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     if (!equality(c) || c.constant != 0 || c.firstAttribute != c.secondAttribute) return NO;
     return (c.firstItem == a && c.secondItem == b) || (c.firstItem == b && c.secondItem == a);
 }
+static NSLayoutConstraint *videoAspectConstraint(UIView *videoView, UIView *surface, CGFloat aspect) {
+    NSLayoutConstraint *result = nil;
+    for (UIView *owner in @[videoView, surface]) {
+        for (NSLayoutConstraint *c in owner.constraints) {
+            if (!c.active || c.firstItem != owner ||
+                (c.firstAttribute != NSLayoutAttributeWidth && c.firstAttribute != NSLayoutAttributeHeight)) continue;
+            if (!c.secondItem) return nil;
+            if (c.secondItem != owner) continue;
+            if (owner != surface || result || c.firstAttribute != NSLayoutAttributeWidth ||
+                c.secondAttribute != NSLayoutAttributeHeight || c.relation != NSLayoutRelationEqual ||
+                c.priority != UILayoutPriorityRequired || c.constant != 0 ||
+                fabs(c.multiplier - aspect) > 0.01) return nil;
+            result = c;
+        }
+    }
+    return result;
+}
 
 @implementation SGRLiveBarConstraints {
     __weak UIView *_source, *_parent, *_card, *_content, *_art, *_videoSurface, *_videoView;
@@ -26,7 +43,6 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     NSArray<NSNumber *> *_original, *_written, *_positions;
     BOOL _active;
     CGFloat _parentHeight, _videoAspect;
-    NSLayoutConstraint *_surfaceAspect;
 }
 - (instancetype)initWithSource:(UIView *)source card:(UIView *)card {
     if (!(self = [super init])) return nil;
@@ -94,20 +110,7 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
             fabs(videoView.bounds.size.height - 56) > 0.5) return nil;
         _videoAspect = surface.bounds.size.width / surface.bounds.size.height;
         if (!isfinite(_videoAspect) || _videoAspect < 0.5 || _videoAspect > 2.4) return nil;
-        for (UIView *owner in @[videoView, surface]) {
-            for (NSLayoutConstraint *c in owner.constraints) {
-                if (!c.active || c.firstItem != owner ||
-                    (c.firstAttribute != NSLayoutAttributeWidth && c.firstAttribute != NSLayoutAttributeHeight)) continue;
-                if (!c.secondItem) return nil; // no speculative fixed-dimension override
-                if (c.secondItem != owner) continue;
-                if (owner != surface || _surfaceAspect || c.firstAttribute != NSLayoutAttributeWidth ||
-                    c.secondAttribute != NSLayoutAttributeHeight || c.relation != NSLayoutRelationEqual ||
-                    c.priority != UILayoutPriorityRequired || c.constant != 0 ||
-                    fabs(c.multiplier - _videoAspect) > 0.01) return nil;
-                _surfaceAspect = c;
-            }
-        }
-        if (!_surfaceAspect) return nil;
+        if (!videoAspectConstraint(videoView, surface, _videoAspect)) return nil;
         _videoView = videoView;
         _videoSurface = surface;
     } else {
@@ -136,8 +139,11 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
         ![_art isDescendantOfView:_content] || ![_content isDescendantOfView:_card]) return [self reject:@"source/card/media hierarchy changed"];
     if (_videoAspect) {
         if (!_videoSurface || !_videoView || _videoSurface.superview != _videoView || _videoView.superview != _art) return [self reject:@"video surface hierarchy changed"];
-        if (!_surfaceAspect.active || _surfaceAspect.constant != 0 || _surfaceAspect.priority != UILayoutPriorityRequired)
-            return [self reject:[NSString stringWithFormat:@"video aspect changed: active=%d constant=%.3f priority=%.0f", _surfaceAspect.active, _surfaceAspect.constant, _surfaceAspect.priority]];
+        // Spotify rebuilds this constraint in videoSurfaceDidChangeVideoRect:, including
+        // during our resize with an unchanged ratio (captured in r8). It belongs to Spotify:
+        // observe its current meaning, never retain/restore its previous object identity.
+        if (!videoAspectConstraint(_videoView, _videoSurface, _videoAspect))
+            return [self reject:@"video aspect changed: no compatible active constraint"];
         CGFloat height = _videoSurface.bounds.size.height;
         if (height <= 0 || fabs(height - _card.bounds.size.height) > 0.5 ||
             fabs(_videoSurface.bounds.size.width / height - _videoAspect) > 0.01)

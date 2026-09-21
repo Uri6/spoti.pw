@@ -30,8 +30,9 @@ constraints follow that surface; they do not size the video independently.
 The initial inferred fixed-dimension adapter in r6 rejected this graph before mutation, despite
 its synthetic fixture passing. r7 replaces that inferred fixture with this captured graph: the
 adapter changes only card height and root placement. Spotify's untouched surface aspect constraint
-then computes the live width. A replaced/deactivated aspect constraint revokes ownership; restoring
-the lease never reactivates Spotify's old aspect constraint. Tests reacquire after an aspect change
+then computes the live width. r8 subsequently showed that Spotify replaces this constraint during layout even with an unchanged
+ratio. r9 accepts an equivalent current constraint; a missing or incompatible constraint revokes
+ownership. Restoring the lease never reactivates Spotify's old aspect constraint. Tests reacquire after an aspect change
 and verify that missing aspect constraints fail without changing the card.
 
 Selectors `videoSurfaceDidAttachVideo:`, `videoSurfaceDidDetachVideo:` and

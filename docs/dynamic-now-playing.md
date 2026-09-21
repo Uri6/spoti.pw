@@ -97,7 +97,7 @@ acceptance; see the device findings below.
 | Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
 | Layer boundaries and patch whitespace | Passed |
 | Full Theos compile, package and IPA injection | Passed with the private Spotify 9.1.78 input |
-| Physical Spotify runtime | User confirmed audio collapse/expand in r5. Expansion animation was abrupt; video fell back as designed and is now an explicit support requirement. r6 video still rejected its layout; r7 follows the deeper capture and awaits physical verification. |
+| Physical Spotify runtime | User confirmed audio collapse/expand in r5. Expansion animation was abrupt; video fell back as designed and is now an explicit support requirement. r6 video still rejected its layout; r7 admitted that profile but still rejected it during layout; r8 identified replacement of an equivalent aspect constraint. |
 
 The test command uses `pipefail`; its outcome and the exported individual test counts were checked
 separately. The final source revision is recorded so documentation-only follow-ups are not mistaken
@@ -192,3 +192,11 @@ measured source/card/media/video sizes, and changed placement/media constraints.
 of the fitting rules and is diagnostic, not a claimed video fix. The regression asserts that a replaced
 aspect constraint retains its specific failure reason after restoration. Physical animation status
 is still unverified.
+
+### r8 diagnosis and r9 candidate
+
+The installed r8 captured `constraint lease: video aspect changed: active=0 constant=0.000 priority=1000` on the physical iPhone while video played on Home. The restored tree contained a new required 4:3 aspect constraint on the same live surface. Inspection of Spotify 9.1.78 also showed that `videoSurfaceDidChangeVideoRect:` rebuilds the aspect constraint even for an unchanged ratio.
+
+The previous lease retained the old constraint object, so this normal replacement incorrectly revoked placement. r9 checks the current surface-owned constraint graph instead: exactly one compatible required aspect constraint, no new fixed dimensions, the same surface hierarchy, and the expected measured dimensions. It never writes or restores Spotify's aspect constraint. A different ratio, missing aspect, changed hierarchy or an extra dimension requirement still revokes the lease.
+
+Regression coverage replaces equivalent constraints during `layoutIfNeeded` for landscape and portrait ratios, replaces them between placements while preserving original-button hit testing, and introduces an external dimension requirement. Physical r9 playback, scrolling, expansion and media switching remain unverified until installation and device testing.

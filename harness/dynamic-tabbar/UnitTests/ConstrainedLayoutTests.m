@@ -2,6 +2,18 @@
 #import "../App/FixtureAudioPlayer.h"
 #import "Redesigned/NowPlayingBar/LiveBarLayout.h"
 
+@interface AspectRefreshingContainer : UIView
+@property(nonatomic, copy) void (^duringLayout)(void);
+@end
+@implementation AspectRefreshingContainer
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    void (^refresh)(void) = self.duringLayout;
+    self.duringLayout = nil;
+    if (refresh) refresh();
+}
+@end
+
 @interface ConstrainedLayoutTests : XCTestCase
 @property(nonatomic, strong) UIWindow *window;
 @property(nonatomic, strong) UIView *parent;
@@ -17,7 +29,7 @@
     self.window = [[UIWindow alloc] initWithWindowScene:scene];
     self.window.rootViewController = [UIViewController new];
     [self.window makeKeyAndVisible];
-    self.parent = [[UIView alloc] initWithFrame:CGRectMake(0, 100, 402, 56)];
+    self.parent = [[AspectRefreshingContainer alloc] initWithFrame:CGRectMake(0, 100, 402, 56)];
     [self.window.rootViewController.view addSubview:self.parent];
     self.fixture = [[FixtureAudioPlayer alloc] initInParent:self.parent];
     self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.fixture.source cardView:self.fixture.card];
@@ -172,6 +184,73 @@
     self.layout = [[SGRLiveBarLayout alloc] initWithSource:self.fixture.source cardView:self.fixture.card];
     XCTAssertTrue([self place:260], @"%@", self.layout.rejectionReason);
     XCTAssertEqualWithAccuracy(self.fixture.videoSurface.bounds.size.width / self.fixture.videoSurface.bounds.size.height, 16.0/9, 0.01);
+}
+- (void)testEquivalentVideoAspectRebuiltDuringPlacementKeepsTheLiveSurface {
+    for (NSNumber *ratioValue in @[@(4.0/3), @(16.0/9), @(9.0/16)]) {
+        CGFloat ratio = ratioValue.doubleValue;
+        [self installVideo:ratio];
+        UIView *surface = self.fixture.videoSurface, *parent = surface.superview;
+        CALayer *layer = surface.layer;
+        __block NSLayoutConstraint *current = self.fixture.videoAspect;
+        for (NSNumber *width in @[@360, @260, @360]) {
+            NSLayoutConstraint *previous = current;
+            __block BOOL refreshed = NO;
+            // Like Spotify's video-rect callback, this replaces the aspect object while
+            // applyFrame is inside layoutIfNeeded, before its ownership check runs.
+            ((AspectRefreshingContainer *)self.parent).duringLayout = ^{
+                current.active = NO;
+                current = [surface.widthAnchor constraintEqualToAnchor:surface.heightAnchor multiplier:ratio];
+                current.active = YES;
+                refreshed = YES;
+            };
+            XCTAssertTrue([self place:width.doubleValue], @"%@", self.layout.rejectionReason);
+            XCTAssertTrue(refreshed);
+            XCTAssertFalse(previous.active);
+            XCTAssertTrue(current.active);
+            XCTAssertTrue(self.layout.ownsCurrentGeometry);
+            XCTAssertEqual(surface.superview, parent);
+            XCTAssertEqual(surface.layer, layer);
+            XCTAssertEqualWithAccuracy(surface.bounds.size.height, 48, 0.5);
+            XCTAssertEqualWithAccuracy(surface.bounds.size.width / surface.bounds.size.height, ratio, 0.01);
+        }
+        [self.layout restore];
+        XCTAssertFalse(self.fixture.videoAspect.active);
+        XCTAssertTrue(current.active);
+        XCTAssertEqualWithAccuracy(surface.bounds.size.height, 56, 0.5);
+    }
+}
+- (void)testEquivalentVideoAspectReplacementBetweenLayoutsPreservesHitTesting {
+    [self installVideo:4.0/3];
+    XCTAssertTrue([self place:360]);
+    UIView *surface = self.fixture.videoSurface;
+    self.fixture.videoAspect.active = NO;
+    NSLayoutConstraint *replacement = [surface.widthAnchor constraintEqualToAnchor:surface.heightAnchor multiplier:4.0/3];
+    replacement.active = YES;
+    XCTAssertTrue(self.layout.ownsCurrentGeometry);
+    XCTAssertTrue([self place:260], @"%@", self.layout.rejectionReason);
+    UIView *host = self.window.rootViewController.view;
+    CGPoint point = [self.fixture.play convertPoint:CGPointMake(22, 22) toView:host];
+    UIView *hit = [self.layout hitTest:point fromView:host event:nil];
+    XCTAssertEqual(hit, self.fixture.play);
+    [(UIButton *)hit sendActionsForControlEvents:UIControlEventTouchUpInside];
+    XCTAssertEqualObjects(self.fixture.play.accessibilityValue, @"1");
+    [self.layout restore];
+    XCTAssertTrue(replacement.active);
+    XCTAssertFalse(self.fixture.videoAspect.active);
+}
+- (void)testNewVideoDimensionRequirementRevokesLeaseWithoutOverwritingIt {
+    [self installVideo:4.0/3];
+    XCTAssertTrue([self place:360]);
+    NSLayoutConstraint *external = [self.fixture.videoSurface.heightAnchor constraintEqualToConstant:48];
+    external.priority = 999; // Redundant now, but would block a subsequent height change.
+    external.active = YES;
+    XCTAssertFalse(self.layout.ownsCurrentGeometry);
+    XCTAssertFalse([self place:260]);
+    XCTAssertTrue([self.layout.rejectionReason containsString:@"video aspect changed"]);
+    [self.layout restore];
+    XCTAssertTrue(external.active);
+    XCTAssertEqual(external.constant, 48);
+    XCTAssertTrue(self.fixture.videoAspect.active);
 }
 - (void)testMissingVideoAspectRejectsWithoutMutatingTheNaturalCard {
     [self installVideo:4.0/3];
