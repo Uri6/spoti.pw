@@ -416,6 +416,28 @@ static NSString *trailingLabel(UIView *root) {
         NSLog(@"[harness] hero %@, title stack %@, action row %@",
               NSStringFromCGRect([cover.window convertRect:cover.bounds fromView:cover]),
               NSStringFromCGRect(self->_titleStack.frame), NSStringFromCGRect(self->_actionRow.frame));
+
+        // The ⋯ the redesign pins over the page, outside the scroll, and the artist line under the title,
+        // which opens whoever made the album (issues #57 and #56).
+        UIView *pinned = nil;
+        for (UIView *sub in page.subviews) {
+            if ([NSStringFromClass(sub.class) isEqualToString:@"SGRMirrorButton"]) pinned = sub;
+        }
+        NSLog(@"[harness] pinned more: %@ on the page, hidden=%d",
+              pinned ? NSStringFromCGRect(pinned.frame) : @"MISSING", pinned.hidden);
+        __block UIView *info = nil, *artist = nil;
+        void (^__block walk)(UIView *) = ^(UIView *v) {
+            if ([NSStringFromClass(v.class) isEqualToString:@"SGRHeaderInfo"]) info = v;
+            for (UIView *sub in v.subviews) walk(sub);
+        };
+        walk(root.view);
+        for (UIView *sub in info.subviews) {
+            if ([sub isKindOfClass:UILabel.class] && [((UILabel *)sub).text isEqualToString:@"The Weeknd"]) artist = sub;
+        }
+        UIView *onName = [info hitTest:CGPointMake(CGRectGetMidX(info.bounds), CGRectGetMidY(artist.frame)) withEvent:nil];
+        UIView *beside = [info hitTest:CGPointMake(24, CGRectGetMidY(artist.frame)) withEvent:nil];
+        NSLog(@"[harness] artist line: on the name %@, beside it %@", onName ? NSStringFromClass(onName.class) : @"through",
+              beside ? NSStringFromClass(beside.class) : @"through");
     });
 
     // Spotify lays the header out again after the redesign has moved things: the title block, its stack and

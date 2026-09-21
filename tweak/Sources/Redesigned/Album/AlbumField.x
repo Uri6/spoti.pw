@@ -136,10 +136,12 @@ static SGRArtworkField *fieldIn(UIView *page) {
 %ctor {
     // Registered whatever the switch says: the flag rows elsewhere lock to these while it is on.
     SGRedesignForceFlags(@"album", @{
-        // The Music app keeps share and more out of the row under the cover; this is Spotify's own way of
-        // moving the more button up into the navigation bar, and the action row is laid out from whichever
-        // of the buttons it still finds, so it reads either way.
-        @"ios-album-albumfeatureproperties-impl.context_menu_in_navigation_bar_enabled": @YES,
+        // More stays in Spotify's own header row, blanked with the rest of the column, and the redesign pins
+        // its own glass ⋯ over the page (Kit/SGRActionRow.h). In the navigation bar -- which this flag is
+        // Spotify's own way of putting it, and which the redesign forced until 2026-09-20 -- it was gone as
+        // soon as the page was scrolled (the playlist's tree caught the bar's trailing slot empty,
+        // trees/continuous/1.txt, issue #57).
+        @"ios-album-albumfeatureproperties-impl.context_menu_in_navigation_bar_enabled": @NO,
         @"ios-album-albumfeatureproperties-impl.share_in_action_row_enabled": @NO,
         // A row is a title and its artists. The video badge is neither.
         @"ios-creativeworkcommons-retrievalrow-impl.track_video_indicator_enabled": @NO,

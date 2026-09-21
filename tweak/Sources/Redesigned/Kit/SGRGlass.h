@@ -10,7 +10,9 @@
 #import <UIKit/UIKit.h>
 
 // A glass circle inside someone else's round control, `side` across, behind everything the control
-// draws (zPosition -1) and kept at its middle by the autoresizing mask. Being the control's own
+// draws (first in its subviews, re-asserted on every call, since glass takes what is above it in the
+// tree into its backdrop however the depths are set) and kept at its middle by the autoresizing mask.
+// Being the control's own
 // subview it goes wherever the control goes: a frame worked out from outside goes stale when Spotify
 // lays a row out after the unit that holds it (the player's header circles sat 24pt off until a tap
 // laid the unit out again, trees/continuous/1.txt 2026-09-17). Takes no touches; made once per control

@@ -56,10 +56,15 @@ fi
 
 APP_DIR="$(unzip -Z1 "$IN" | grep -oE '^Payload/[^/]+\.app/' | sort -u | head -1)"
 [ -n "$APP_DIR" ] || { echo "no Payload/*.app in $IN" >&2; exit 1; }
-VERSION="$(unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist" && plutil -extract CFBundleShortVersionString raw -o - "$ROOT/out/.info.plist")"
+SPOTIFY_VERSION="$(unzip -p "$IN" "${APP_DIR}Info.plist" > "$ROOT/out/.info.plist" && plutil -extract CFBundleShortVersionString raw -o - "$ROOT/out/.info.plist")"
 rm -f "$ROOT/out/.info.plist"
-OUT="${OUT:-$ROOT/out/Spotify-$VERSION-glass.ipa}"
-echo "==> Spotify $VERSION -> $OUT"
+# The name carries the mod's version, not Spotify's: it is the one the About page shows and the one
+# worth telling builds apart by. version.txt is read the way tweak/Makefile reads it, so a build from
+# a fork left behind by a release is named for the version it really is.
+MOD_VERSION="$(cat "$ROOT/version.txt" 2>/dev/null || true)"
+: "${MOD_VERSION:=0.0.0}"
+OUT="${OUT:-$ROOT/out/spoti.pw-$MOD_VERSION.ipa}"
+echo "==> spoti.pw $MOD_VERSION on Spotify $SPOTIFY_VERSION -> $OUT"
 
 # The flag table is generated rather than committed, so it always matches the IPA being built.
 if [ ! -f "$ROOT/tweak/Sources/Shared/Flags/SGFlagList.m" ]; then

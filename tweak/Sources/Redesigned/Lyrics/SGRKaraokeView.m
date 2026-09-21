@@ -977,6 +977,10 @@ typedef struct {
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(playerTransitionChanged:) name:SGPlayerTransitionNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(playerTransitionChanged:) name:SGPlayerTransitionEndedNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(restyle) name:SGRLyricsTextDidChangeNotification object:nil];
+    // A locked phone leaves the card in its window, so the link has to be put down by the app going
+    // away rather than by the view going: see scheduleLink.
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleLink) name:UIApplicationDidBecomeActiveNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(scheduleLink) name:UIApplicationWillResignActiveNotification object:nil];
     return self;
 }
 
@@ -1045,6 +1049,11 @@ typedef struct {
 // link now asks for 60 but takes 120, and is put down for as long as the player animates, which
 // NowPlayingBar.x announces as each animation starts and again as it ends. The timer is for an end
 // that is never announced.
+//
+// The link is also put down whenever the app is not in front. Spotify keeps playing there, and a
+// phone locked on the player kept the card ticking at 120 Hz against a screen that was off: 117 of
+// the 137 wake ups a second the mod cost over stock Spotify were this one link, measured with
+// scripts/battery-probe.sh. Nothing of the card is seen from the background, so nothing is drawn.
 - (void)scheduleLink {
     [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(startLink) object:nil];
     [_link invalidate];
@@ -1057,6 +1066,7 @@ typedef struct {
 
 - (void)startLink {
     if (!self.window || _link) return;
+    if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
     _link = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick)];
     _link.preferredFrameRateRange = CAFrameRateRangeMake(80, 120, 120);
     [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];

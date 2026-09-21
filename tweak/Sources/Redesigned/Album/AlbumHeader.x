@@ -36,8 +36,8 @@ static const CGFloat kDissolve = 0.46, kTopScrim = 140, kTopScrimAlpha = 0.28;
 static const CGFloat kMinHero = 120, kMinCover = 80;
 
 static char kHeaderKey, kCoverKey, kTitleKey, kParentKey, kMetaKey, kAddKey, kDownloadKey, kPlayKey, kShuffleKey;
-static char kHeroKey, kHeroHeightKey, kHeaderHeightKey, kInfoKey, kCoverWatchedKey, kHeaderWatchedKey, kRetryKey;
-static char kExploreKey, kRowWatchedKey;
+static char kHeroKey, kHeroHeightKey, kHeaderHeightKey, kInfoKey, kHeaderWatchedKey, kRetryKey;
+static char kExploreKey, kRowWatchedKey, kMoreKey, kPinnedMoreKey;
 
 #pragma mark - moving Spotify's views
 
@@ -116,10 +116,14 @@ static void watch(UIView *view, const void *key, void (^laidOut)(UIView *view)) 
 @interface SGRAlbumHero : UIView
 @property (nonatomic, readonly) UIImageView *picture;
 @property (nonatomic, copy) UIColor *fieldColor;
+// The cover in Spotify's artwork view, and every cover it puts there afterwards: the hero keeps itself
+// right, rather than being handed a picture on each of the header's passes and staying empty between them.
+- (void)followCover:(UIImageView *)source;
 @end
 
 @implementation SGRAlbumHero {
     CAGradientLayer *_scrim, *_dissolve;
+    __weak UIImageView *_cover;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -182,24 +186,45 @@ static void watch(UIView *view, const void *key, void (^laidOut)(UIView *view)) 
     [CATransaction commit];
 }
 
+- (void)followCover:(UIImageView *)source {
+    if (!source) return;
+    [self takeCover:source late:NO];
+    if (_cover == source) return;
+    _cover = source;
+    __weak SGRAlbumHero *weakSelf = self;
+    SGRObserveImage(source, ^(UIImageView *view) { [weakSelf takeCover:view late:YES]; });
+}
+
+// `late` is a cover that arrived after the header had laid out -- an album opened for the first time, whose
+// artwork is still being fetched while the page is already on screen. The log line says once that the watch,
+// and not one of the header's passes, is what filled the hero.
+- (void)takeCover:(UIImageView *)source late:(BOOL)late {
+    UIImage *image = source.image;
+    if (!image || source.bounds.size.width < kMinCover || _picture.image == image) return;
+    _picture.image = image;
+    // The page's field takes its colour from the same picture.
+    SGRAlbumSetArtwork(self, image);
+    static BOOL logged;
+    if (late && !logged) {
+        logged = YES;
+        SGLog(@"redesign album: the cover landed after the header had laid out; the hero took it");
+    }
+}
+
 @end
 
-// The cover Spotify loaded, read from the image view of its artwork square.
+// The image view of Spotify's artwork square: the one with the cover in it, or, before the cover has been
+// fetched, the empty one it will land in, so it can be watched from the first pass.
 static UIImageView *coverImageIn(UIView *cover) {
-    __block UIImageView *found = nil;
+    __block UIImageView *found = nil, *empty = nil;
     SGForEachView(cover, ^(UIView *v) {
         if (found || ![v isKindOfClass:UIImageView.class]) return;
         UIImageView *image = (UIImageView *)v;
-        if (image.image && image.bounds.size.width >= kMinCover) found = image;
+        if (image.bounds.size.width < kMinCover) return;
+        if (image.image) found = image;
+        else if (!empty) empty = image;
     });
-    return found;
-}
-
-static void showCover(SGRAlbumHero *hero, UIImageView *view, UIView *header) {
-    UIImage *image = view.image;
-    if (!image || view.bounds.size.width < kMinCover) return;
-    if (hero.picture.image != image) hero.picture.image = image;
-    SGRAlbumSetArtwork(header, image);
+    return found ?: empty;
 }
 
 // The picture runs from the top of the header down past where its text begins, so the title and the artist
@@ -228,17 +253,7 @@ static void applyHero(UIView *header, UIView *cover, CGFloat bottom) {
     setFrame(hero, CGRectMake(0, 0, header.bounds.size.width, height));
     hero.fieldColor = SGRAlbumFieldColor(header);
 
-    UIImageView *source = coverImageIn(cover);
-    showCover(hero, source, header);
-    // The cover loads after the header is laid out, and a new image lays nothing out again.
-    if (source && !objc_getAssociatedObject(source, &kCoverWatchedKey)) {
-        objc_setAssociatedObject(source, &kCoverWatchedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        __weak SGRAlbumHero *weakHero = hero;
-        __weak UIView *weakHeader = header;
-        SGRObserveImage(source, ^(UIImageView *view) {
-            if (weakHero && weakHeader) showCover(weakHero, view, weakHeader);
-        });
-    }
+    [hero followCover:coverImageIn(cover)];
     conceal(cover);
 }
 
@@ -310,6 +325,14 @@ static SGRHeaderInfo *applyInfo(UIView *header, UIView *page) {
             if (weakHeader && weakPage) applyHeader(weakHeader, weakPage);
         });
     }
+
+    // The artist under the title, opened from the line that names them. ParentRow is one control for the
+    // whole line however many artists are on the album, so several of them open Spotify's own picker
+    // (issue #56).
+    [info showCreatorLink:parent];
+
+    // More, pinned over the page rather than left in the header, which is blanked and scrolls away.
+    SGRPinnedMore(page, &kPinnedMoreKey, SGRFindByIdentifier(header, @"Components.UI.ContextMenuButton*", &kMoreKey));
 
     UIView *play = floatingIn(page, @"header-play-button", &kPlayKey);
     UIView *shuffle = floatingIn(page, @"Components.UI.ShuffleButton", &kShuffleKey);

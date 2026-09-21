@@ -181,16 +181,20 @@ Redesigned:
                   has it without the camera, and each card as Liquid Glass tinted by its own colour, read off the Box's
                   shape layer (Search.h lists its files)
     Library/      Your Library the way Home and Search have their headers: a large title at the leading edge, the avatar
-                  at the trailing edge with the search and create buttons before it, the filter chips and the header's
-                  scrim gone and the header closed up by the band they leave, each row's artwork at the Kit's radius
-                  with a circular one left round, a hairline between the rows, and the search inside the library on
-                  glass capsules (Library.h lists its files)
+                  at the trailing edge with the search and create buttons before it, the header's scrim gone, each row's
+                  artwork at the Kit's radius with a circular one left round, a hairline between the rows, and the search
+                  inside the library on glass capsules (Library.h lists its files). The filter chips under the row stay
+                  Spotify's: they were taken out when this was first built and put back in 0.21 (issue #20), since
+                  sorting a library is not something the page can do without, and Spotify already draws them on the
+                  system's own glass
     Playlist/     the playlist page (Liked Songs and one's own too, all three being the same page) the way the Music
                   app lays one out: the cover full bleed across the top dissolving into the page's field with no seam,
                   the title, the creator and the length centred under it, one row of glass controls (shuffle, a
-                  prominent Play capsule taking its glyph and its word from Spotify's own button, add, more), the find
-                  bar and the curation pills gone, and the track rows on the field with a hairline between them
-                  (Playlist.h lists its files). Laid out on the Mac against harness/playlist/
+                  prominent Play capsule taking its glyph and its word from Spotify's own button, add), the find bar
+                  and the curation pills gone, and the track rows on the field with a hairline between them
+                  (Playlist.h lists its files). Sort and Mix, the two of those pills the ⋯ menu does not already offer,
+                  are put on that menu's own sheet instead, above Spotify's rows, and fire Spotify's own buttons.
+                  Laid out on the Mac against harness/playlist/
     Album/        the album page laid out the same way, on the page the Creative Work Platform builds rather than the
                   playlist's, so it shares nothing with Playlist/ but the Kit: the cover full bleed dissolving into the
                   field, the title, the artist and the kind and date centred under it, and the same row of glass
@@ -222,7 +226,7 @@ and Live Activity. The root page in `App/ModSettings.x` holds the Appearance car
 
 ## Make targets
 
-    make build      # out/Spotify-<version>-glass.ipa with FLEX in it
+    make build      # out/spoti.pw-<version>.ipa with FLEX in it
     make release    # the same without FLEX
     make install    # build without FLEX, sign with your certificate, install over USB
     make install FLEX=1   # the same with FLEX, which is what make trees reads through

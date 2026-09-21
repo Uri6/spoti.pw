@@ -1,8 +1,14 @@
 // Library redesign: the header of Your Library and of a folder inside it, the way Home and Search have theirs
 // (Redesigned/Home/HomeHeader.x, Redesigned/Search/SearchPage.x). A large title at the leading edge, the avatar
-// that opens the side drawer at the trailing edge, the filter chips gone, and the scrim Spotify lays behind the
-// header gone with them, the soft scroll edge (Kit/SGREdgeEffect.x) being what keeps the header clear of the
-// list scrolling under it.
+// that opens the side drawer at the trailing edge, and the scrim Spotify lays behind the header gone, the soft
+// scroll edge (Kit/SGREdgeEffect.x) being what keeps the header clear of the list scrolling under it.
+//
+// The filter chips under the row stay Spotify's, untouched. They were taken out when the redesign was first
+// built and the header closed up by the 49pt they left, and sorting a library turned out to be something the
+// page cannot do without (issue #20). Spotify already draws them on the system's own glass
+// (Reprise_LiquidGlassKit.LiquidGlass.ChipGlassView, trees/clean/library/03.txt:1210), so they belong here as
+// they are; with them back the header keeps the height Spotify gives it and the list keeps Spotify's own inset,
+// and there is nothing here to resize or to hold.
 //
 // Tree (trees/clean/library/03.txt:1159-1247): YourLibraryView holds YourLibraryContentView, the size of the
 // page, and after it -- so over it -- YourLibraryHeaderView 402x159.33: LiquidGlass.GradientView (the scrim), a
@@ -35,12 +41,7 @@
 // far each control went since -- over the title, off the screen -- until the page laid out again on the way
 // back from a playlist (issue #21). So the row the controls stand in is watched too, and every pass of its own
 // places them again.
-//
-// The chips leaving takes 49pt off the bottom of the header. What the header is shrunk to is the bottom of its
-// control row, which hangs off the safe area rather than off the header and so answers the same on every pass,
-// shrunk header or not; the chips' own top would move with the header and shrink it again pass after pass. The
-// page under it is then closed up the way that page holds its list: the root insets the list's top by the
-// header's height, a folder puts its content view below the header instead.
+
 #import "Core/SGCore.h"
 #import "Redesigned/Kit/SGRKit.h"
 #import "Library.h"
@@ -51,10 +52,7 @@ NSString *const SGRLibraryListIdentifier = @"YourLibraryContent.collectionView";
 // 24pt glyph 20pt from the screen, and the 32pt avatar inside its own 48pt box 16pt from it, which is the
 // margin Home gives the avatar.
 static const CGFloat kRowInset = 8;
-// A header shorter than this has not been laid out yet, and nothing is resized from it.
-static const CGFloat kHeaderFloor = 88;
-
-static char kTitleKey, kListKey, kInsetKey, kRowWatchedKey;
+static char kTitleKey, kRowWatchedKey;
 static char kRecentsKey, kSearchKey, kPlusKey, kHeaderTitleKey;
 static char kBackKey, kMenuKey, kFolderPlusKey, kPlayKey, kPauseKey, kFolderTitleKey;
 
@@ -171,53 +169,6 @@ static void layoutTitle(UIView *header, UIView *spotifyTitle, CGFloat leading, C
     if (!CGRectEqualToRect(title.frame, frame)) title.frame = frame;
 }
 
-#pragma mark - the page closing up
-
-// The header without its chips, and the page under it closed up by what they leave. `control` is any of the
-// header's 48pt controls: they fill its control row, so the bottom of one is the bottom of the row.
-static void resize(UIView *page, UIView *header, UIView *control, UIView *filters) {
-    if (!filters || !control) return;
-    CGFloat wanted = CGRectGetMaxY(SGFrameIn(control, header));
-    if (wanted < kHeaderFloor || wanted > header.bounds.size.height + 0.5) return;
-
-    CGRect frame = header.frame;
-    if (fabs(frame.size.height - wanted) > 0.5) {
-        frame.size.height = wanted;
-        header.frame = frame;
-    }
-
-    UIView *content = childNamed(page, @"YourLibraryContentView");
-    if (!content) return;
-    if (CGRectGetMinY(content.frame) > 0.5) {
-        // A folder: its content view starts under the header rather than behind it.
-        CGRect wantedFrame = CGRectMake(0, wanted, page.bounds.size.width, page.bounds.size.height - wanted);
-        if (!CGRectEqualToRect(content.frame, wantedFrame)) content.frame = wantedFrame;
-        return;
-    }
-
-    // The root: the list rests under the header by an inset of its own. The inset is lowered by the band the
-    // chips had rather than set to the header's height, since what Spotify counts into it is its own business,
-    // and it is taken once -- after this pass the header no longer says how tall it was -- and then held by the
-    // setter hook below, so Spotify setting it again from its own pass is not something to answer pass after
-    // pass.
-    UIView *found = SGRFindByIdentifier(content, SGRLibraryListIdentifier, &kListKey);
-    if (![found isKindOfClass:UIScrollView.class]) return;
-    UIScrollView *list = (UIScrollView *)found;
-    if (objc_getAssociatedObject(list, &kInsetKey)) return;
-    CGFloat drop = CGRectGetMaxY(SGFrameIn(filters, header)) - wanted;
-    CGFloat top = list.contentInset.top;
-    // Nothing is taken off an inset that does not hold a header yet: the next pass has one.
-    if (drop < 1 || top < kHeaderFloor || top < drop) return;
-    objc_setAssociatedObject(list, &kInsetKey, @(top - drop), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    BOOL atTop = list.contentOffset.y <= -top + 0.5;
-    UIEdgeInsets inset = list.contentInset;
-    inset.top = top - drop;
-    list.contentInset = inset;
-    // A list resting at its top rests that much higher; one scrolled into its rows does not move at all.
-    if (atTop) list.contentOffset = CGPointMake(list.contentOffset.x, -inset.top);
-    SGLog(@"redesign library: the chips took %.0fpt off the header, the list rests at %.0f", drop, inset.top);
-}
-
 #pragma mark - the two headers
 
 static BOOL isFace(UIView *view) {
@@ -276,12 +227,9 @@ static void layoutRoot(UIView *page) {
     if (!header) return;
     [header layoutIfNeeded];
     SGRLibraryClearScrim(header);
-    UIView *filters = childNamed(header, @"YourLibraryHeaderContentFiltersView");
-    vanish(filters);
 
     NSArray<UIView *> *trailing = placeRoot(header);
     if (!trailing.count) return;
-    resize(page, header, trailing.firstObject, filters);
 
     // The first pass that laid the header out, not the first pass at all: a page appearing lays out before
     // its controls have a size, and a line off that pass would say the header was left as Spotify's.
@@ -291,7 +239,7 @@ static void layoutRoot(UIView *page) {
         logged = YES;
         SGLog(@"redesign library: header %@, %lu controls at the trailing edge, avatar %@, chips %@",
               NSStringFromCGRect(header.frame), (unsigned long)trailing.count, face ? @"found" : @"not found",
-              filters ? @"gone" : @"not found");
+              childNamed(header, @"YourLibraryHeaderContentFiltersView") ? @"Spotify's" : @"not found");
     }
 }
 
@@ -300,12 +248,9 @@ static void layoutFolder(UIView *page) {
     if (!header) return;
     [header layoutIfNeeded];
     SGRLibraryClearScrim(header);
-    UIView *filters = childNamed(header, @"YourLibraryHeaderContentFiltersView");
-    vanish(filters);
 
     NSArray<UIView *> *placed = placeFolder(header);
     if (!placed.count) return;
-    resize(page, header, placed.firstObject, filters);
 
     UIView *back = SGRFindByIdentifier(header, @"YourLibraryFolderHeader.back", &kBackKey);
     NSUInteger trailing = placed.count - (back ? 1 : 0);
@@ -314,20 +259,9 @@ static void layoutFolder(UIView *page) {
         logged = YES;
         SGLog(@"redesign library: folder header %@, back %@, %lu controls at the trailing edge, chips %@",
               NSStringFromCGRect(header.frame), back ? @"found" : @"not found", (unsigned long)trailing,
-              filters ? @"gone" : @"not found");
+              childNamed(header, @"YourLibraryHeaderContentFiltersView") ? @"Spotify's" : @"not found");
     }
 }
-
-// Spotify works the list's top inset out from the header it had before the chips went, and sets it again
-// whenever it lays the page out. The list keeps the one this file took instead, so the two never take turns
-// setting it: a scroll view laying out again from every set of ours is a loop the page cannot settle out of.
-%hook _TtC21YourLibrary_CommonKit25YourLibraryCollectionView
-- (void)setContentInset:(UIEdgeInsets)inset {
-    NSNumber *held = objc_getAssociatedObject(self, &kInsetKey);
-    if (held) inset.top = held.doubleValue;
-    %orig(inset);
-}
-%end
 
 %hook _TtC28YourLibrary_YourLibraryXImpl15YourLibraryView
 - (void)layoutSubviews {
@@ -349,7 +283,6 @@ static void layoutFolder(UIView *page) {
     SGRequireClasses(@[
         @"_TtC28YourLibrary_YourLibraryXImpl15YourLibraryView",
         @"_TtC22YourLibrary_FolderImpl10FolderView",
-        @"_TtC21YourLibrary_CommonKit25YourLibraryCollectionView",
         @"_TtC21YourLibrary_CommonKit35YourLibraryHeaderContentFiltersView",
         @"_TtC29ListeningActivity_ElementsKit21AdaptiveFaceContainer",
     ]);

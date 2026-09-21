@@ -4,8 +4,14 @@
 
 #pragma mark - Spotify's classes, by name
 
-@interface _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController : UIViewController @end
-@implementation _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController @end
+@interface _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController : UIViewController
+- (void)sgr_creatorFired;
+- (void)sgr_pillFired:(UIView *)pill;
+@end
+@implementation _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController
+- (void)sgr_creatorFired { NSLog(@"[harness] the creator line opened the playlist's owner"); }
+- (void)sgr_pillFired:(UIView *)pill { NSLog(@"[harness] the sheet fired Spotify's %@ pill", pill.accessibilityLabel); }
+@end
 
 @interface _TtC35ListUXPlatform_FreeTierPlaylistImpl32FTPTouchCancellingCollectionView : UIScrollView @end
 @implementation _TtC35ListUXPlatform_FreeTierPlaylistImpl32FTPTouchCancellingCollectionView @end
@@ -81,6 +87,51 @@
 @interface _TtGC13Element_UIKit11ElementViewT_P_P__ : UIView @end
 @implementation _TtGC13Element_UIKit11ElementViewT_P_P__ @end
 
+// What the element framework wraps a cell's content in, and what the device's tree shows between the
+// playlist's Refresh cell and the black it paints (trees/continuous/1.txt:1919). It is a cell of its own,
+// the full width of the one around it, so a clear that stops at the first nested cell stops before the paint.
+@interface MockElementContentView : UICollectionViewCell @end
+@implementation MockElementContentView @end
+
+// A card inside a carousel: a cell too, but its own width, and its own colour to keep.
+@interface MockCardCell : UICollectionViewCell @end
+@implementation MockCardCell @end
+
+// Encore's glyph view and the icon it is built from, which answers its own name: how the curation row tells
+// Sort from Edit without reading the word on it.
+@interface MockEncoreIcon : NSObject
+@property (nonatomic, copy) NSString *name;
+@end
+@implementation MockEncoreIcon @end
+
+@interface SPTEncoreIconView : UIView {
+@public
+    id icon;
+}
+@end
+@implementation SPTEncoreIconView @end
+
+@interface _TtC19LegacyUI_ECMCoreKit10ScrollView : UIScrollView @end
+@implementation _TtC19LegacyUI_ECMCoreKit10ScrollView @end
+
+// The header view the find-on-page toolbar sits in, which PlaylistHeader.x conceals whole.
+@interface _TtCO19LegacyUI_ECMCoreKit5Views10HeaderView : UIView @end
+@implementation _TtCO19LegacyUI_ECMCoreKit5Views10HeaderView @end
+
+// Spotify's ⋯ sheet: a table of rows the mod cannot read, whose header is what PlaylistMenu.x sets.
+@interface _TtC24ContextMenu_InternalImpl25ContextMenuViewController : UIViewController
+@property (nonatomic, strong) UITableView *table;
+@end
+@implementation _TtC24ContextMenu_InternalImpl25ContextMenuViewController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.view.backgroundColor = [UIColor colorWithWhite:0.1 alpha:1];
+    _table = [[UITableView alloc] initWithFrame:CGRectMake(0, 200, self.view.bounds.size.width, 400)];
+    _table.backgroundColor = UIColor.clearColor;
+    [self.view addSubview:_table];
+}
+@end
+
 // The plain UIView Liked Songs' shuffle stack sits in: its own pass puts the stack back where Spotify's
 // constraints want it, on the right of the row, which is what made the shuffle flash there on the phone.
 @interface MockRightHost : UIView @end
@@ -154,7 +205,18 @@ static UIView *actionButton(UIView *row, CGRect frame, NSString *identifier, NSS
     UIImageView *glyph = [[UIImageView alloc] initWithFrame:CGRectInset(button.bounds, 12, 12)];
     NSDictionary *glyphs = @{@"Components.UI.AddToButton": @"plus", @"Components.UI.ContextMenuButton": @"ellipsis",
                              @"DownloadButton.Granular.None": @"arrow.down.circle", @"Components.UI.WatchFeedEntityExplorerButton": @"play.rectangle"};
-    glyph.image = [UIImage systemImageNamed:glyphs[identifier] ?: @"circle"];
+    // Encore bakes the colour into what it draws, and ⋯ sits in a Tertiary button, which draws it grey
+    // (device 2026-09-20): drawn as an image of that colour, not as a template to be tinted.
+    BOOL tertiary = [identifier isEqualToString:@"Components.UI.ContextMenuButton"];
+    UIImage *symbol = [UIImage systemImageNamed:glyphs[identifier] ?: @"circle"];
+    if (tertiary) {
+        UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:symbol.size];
+        symbol = [[renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            [[UIColor colorWithWhite:0.70 alpha:1] set];
+            [symbol drawInRect:(CGRect){CGPointZero, symbol.size}];
+        }] imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    }
+    glyph.image = symbol;
     glyph.tintColor = UIColor.whiteColor;
     [button addSubview:glyph];
     return action;
@@ -301,6 +363,9 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     UIViewController *page = [_TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController new];
     page.view.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1];
     self.window.rootViewController = page;
+    // The device's page counts the navigation bar into its own safe area -- 116 against the window's 62 --
+    // which is what put the pinned ⋯ a bar's height below the back button (trees/continuous/1.txt 2026-09-20).
+    page.additionalSafeAreaInsets = UIEdgeInsetsMake(54, 0, 0, 0);
 
     // the list
     UIScrollView *list = (UIScrollView *)box(page.view, _TtC35ListUXPlatform_FreeTierPlaylistImpl32FTPTouchCancellingCollectionView.class,
@@ -309,9 +374,11 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     NSArray<NSArray<NSString *> *> *tracks = @[@[@"Cry For Me", @"The Weeknd"], @[@"I Can't Fucking Sing", @"The Weeknd"],
                                               @[@"São Paulo", @"The Weeknd, Anitta"], @[@"Until We're Skin & Bones", @"The Weeknd"],
                                               @[@"Baptized In Fear", @"The Weeknd"]];
+    // The curation row stands over the first track, where Spotify's list has it, and the tracks start under it.
+    CGFloat tracksTop = 564;
     for (NSUInteger i = 0; i < tracks.count; i++) {
         UIView *cell = box(list, _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell.class,
-                           CGRectMake(0, 512 + i * 64, W, 64), @"Playlist.ItemCell");
+                           CGRectMake(0, tracksTop + i * 64, W, 64), @"Playlist.ItemCell");
         cell.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1];
         UIView *row = box(cell, UIView.class, cell.bounds, @"Encore.ListRow");
         row.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1];
@@ -326,7 +393,7 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     // The extender under the tracks (device, trees/continuous/2.txt 2026-09-20): Recommended songs, its
     // rows and Refresh, each cell painting the black the AMOLED made of Spotify's base surface over the
     // field. Only the paint is mocked -- what the clear has to take off and what it has to leave.
-    CGFloat extenderTop = 512 + tracks.count * 64;
+    CGFloat extenderTop = tracksTop + tracks.count * 64;
     UIView *heading = box(list, _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell.class,
                           CGRectMake(0, extenderTop, W, 68), nil);
     UIView *headingPaint = box(heading, UIView.class, heading.bounds, @"PlaylistExtender.Heading");
@@ -344,18 +411,74 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     badge.backgroundColor = UIColor.blackColor;
     badge.layer.cornerRadius = 13;
 
+    // A card in a carousel: a cell of its own inside the row, narrower than the page, whose colour is its own
+    // and stays.
+    UIView *card = box(extenderRow, MockCardCell.class, CGRectMake(16, 8, 140, 48), @"PlaylistExtender.Card");
+    card.layer.backgroundColor = UIColor.blackColor.CGColor;
+
+    // Refresh, nested the way the device has it: the cell, the element framework's own content cell the full
+    // width of it, the element view, and the black on the layer rather than through the view
+    // (trees/continuous/1.txt:1919-1922). Both of those are what the first clear walked past.
     UIView *refresh = box(list, _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell.class,
                           CGRectMake(0, extenderTop + 132, W, 48), nil);
-    UIView *refreshPaint = box(refresh, UIView.class, refresh.bounds, @"PlaylistExtender.Refresh");
-    refreshPaint.backgroundColor = UIColor.blackColor;
+    UIView *refreshContent = box(refresh, MockElementContentView.class, refresh.bounds, nil);
+    UIView *refreshElement = box(refreshContent, _TtGC13Element_UIKit11ElementViewT_P_P__.class, refresh.bounds, nil);
+    UIView *refreshPaint = box(refreshElement, UIView.class, refresh.bounds, @"PlaylistExtender.Refresh");
+    refreshPaint.layer.backgroundColor = UIColor.blackColor.CGColor;
     UIView *button = box(refreshPaint, UIView.class, CGRectMake(W / 2 - 36, 8, 72, 32), @"section-header-button");
     button.backgroundColor = UIColor.whiteColor;
     button.layer.cornerRadius = 16;
 
+    // The curation row over the first track (own-playlist/01.txt:33): Add, Mix, Notes, Video, Edit, Sort and
+    // Name & details in a scroll view, of which the redesign keeps Sort and Mix.
+    // `nohandover` builds the row in a cell the redesign's hook never sees, the way the device has it when
+    // the collection has not laid the closed-up cell out yet: the sheet then has to find the row itself.
+    BOOL handover = ![NSProcessInfo.processInfo.arguments containsObject:@"nohandover"];
+    UIView *curation = box(list, handover ? _TtC35ListUXPlatform_FreeTierPlaylistImpl25ElementCollectionViewCell.class
+                                          : UICollectionViewCell.class,
+                           CGRectMake(0, tracksTop - 52, W, 52), nil);
+    UIView *toolbar = box(curation, UIView.class, curation.bounds, @"PlaylistCuration.Row.CurationActionsToolbar");
+    toolbar.layer.backgroundColor = [UIColor colorWithWhite:0.07 alpha:1].CGColor;
+    UIScrollView *pillScroll = (UIScrollView *)box(box(toolbar, UIView.class, toolbar.bounds, nil),
+                                                   _TtC19LegacyUI_ECMCoreKit10ScrollView.class,
+                                                   CGRectMake(0, 10, W, 32), nil);
+    UIView *pillContent = box(pillScroll, UIView.class, CGRectMake(0, 0, 527, 32), nil);
+    UIView *pillStack = box(pillContent, _TtC19LegacyUI_ECMCoreKit19AutoLayoutStackView.class, pillContent.bounds, nil);
+    UIView *pillRow = box(pillStack, UIView.class, pillStack.bounds, nil);
+    pillScroll.contentSize = pillContent.bounds.size;
+    NSArray<NSArray<NSString *> *> *pills = @[@[@"Add", @"PlaylistCuration.AddButton", @"plus"],
+                                              @[@"Mix", @"ListPlatform.ToolbarActions.MixButton", @"mix"],
+                                              @[@"Video", @"Encore.Button.Primary", @"video"],
+                                              @[@"Edit", @"Encore.Button.Primary", @"edit"],
+                                              @[@"Sort", @"Encore.Button.Primary", @"sortDown"],
+                                              @[@"Name & details", @"Encore.Button.Primary", @"playlist"]];
+    CGFloat pillX = 0;
+    NSMutableArray<UIView *> *pillViews = [NSMutableArray array];
+    for (NSArray<NSString *> *pill in pills) {
+        CGFloat width = 40 + pill[0].length * 6;
+        UIView *wrapper = box(pillRow, _TtGC13Element_UIKit11ElementViewT_P_P__.class, CGRectMake(pillX, 0, width, 32), nil);
+        UIButton *pillButton = (UIButton *)box(wrapper, UIButton.class, wrapper.bounds, pill[1]);
+        pillButton.accessibilityLabel = pill[0];
+        [pillButton addTarget:page action:@selector(sgr_pillFired:) forControlEvents:UIControlEventTouchUpInside];
+        pillButton.layer.backgroundColor = [UIColor colorWithWhite:1 alpha:0.14].CGColor;
+        pillButton.layer.cornerRadius = 16;
+        SPTEncoreIconView *icon = (SPTEncoreIconView *)box(pillButton, SPTEncoreIconView.class, CGRectMake(10, 10, 12, 12), @"Encore.IconView");
+        MockEncoreIcon *glyph = [MockEncoreIcon new];
+        glyph.name = pill[2];
+        icon->icon = glyph;
+        label(pillButton, CGRectMake(26, 8, width - 32, 16), pill[0], 11, UIColor.whiteColor, @"Encore.Label");
+        [pillViews addObject:wrapper];
+        pillX += width + 8;
+    }
+
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NSLog(@"[harness] extender paint: heading %@ row-badge %@ refresh %@",
-              headingPaint.backgroundColor ?: @"clear", badge.backgroundColor ?: @"clear",
-              refreshPaint.backgroundColor ?: @"clear");
+        // Cleared means an alpha of 0, whether the colour was taken off the layer or the view: the clear
+        // colour lands on both and reads back with no alpha at all.
+        CGFloat (^alpha)(UIView *) = ^(UIView *v) {
+            return v.layer.backgroundColor ? CGColorGetAlpha(v.layer.backgroundColor) : 0;
+        };
+        NSLog(@"[harness] extender paint: heading a=%.0f row-badge a=%.0f card a=%.0f refresh a=%.0f",
+              alpha(headingPaint), alpha(badge), alpha(card), alpha(refreshPaint));
     });
 
     if ([NSProcessInfo.processInfo.arguments containsObject:@"liked"]) {
@@ -381,6 +504,14 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     wash.clipsToBounds = YES;
     UIView *gradient = box(wash, _TtC19LegacyUI_ECMCoreKit13GradientView.class, wash.bounds, nil);
     gradient.backgroundColor = [UIColor colorWithRed:0.5 green:0.1 blue:0.3 alpha:1];
+    // The second wash of the plane: a plain view painted the base surface with a gradient of its own in it,
+    // drawn after the hero. Spotify keeps it at alpha 0 on an ordinary playlist and raises it with the Mix
+    // feature on, where its black covered the picture whole (trees/continuous/1.txt 2026-09-20).
+    UIView *mixWash = box(wash, UIView.class, wash.bounds, nil);
+    mixWash.backgroundColor = UIColor.blackColor;
+    mixWash.alpha = [NSProcessInfo.processInfo.arguments containsObject:@"mixon"] ? 1 : 0;
+    UIView *mixGradient = box(mixWash, _TtC19LegacyUI_ECMCoreKit13GradientView.class, CGRectMake(0, 8, 560, 560), nil);
+    mixGradient.backgroundColor = [UIColor colorWithRed:0.1 green:0.4 blue:0.2 alpha:1];
 
     UIView *safeArea = box(clipping, UIView.class, clipping.bounds, @"_safeAreaView");
     UIView *contentContainer = box(safeArea, UIView.class, CGRectMake(0, -134, W, 639.33), @"_headerContentContainer");
@@ -442,7 +573,10 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     description.textContainer.lineFragmentPadding = 0;
 
     UIView *creatorRow = box(column, UIView.class, CGRectMake(0, 69, columnWidth, 34), nil);
-    UIView *creator = box(creatorRow, UIView.class, CGRectMake(0, 0, 109.67, 34), nil);
+    UIButton *creator = (UIButton *)box(creatorRow, UIButton.class, CGRectMake(0, 0, 109.67, 34),
+                                        @"Components.PlaylistHeader.collaboratorsButton");
+    creator.accessibilityLabel = @"Playlist created by The Weeknd";
+    [creator addTarget:page action:@selector(sgr_creatorFired) forControlEvents:UIControlEventTouchUpInside];
     UIView *face = box(creator, _TtCE13Encore_FaceKitO16EncoreFoundation6Encore12FacepileView.class, CGRectMake(0, 5, 24, 24), nil);
     face.backgroundColor = [UIColor colorWithWhite:0.8 alpha:1];
     face.layer.cornerRadius = 12;
@@ -491,6 +625,18 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
     shuffleGlyph.image = [UIImage systemImageNamed:@"shuffle"];
     shuffleGlyph.tintColor = UIColor.whiteColor;
     [shuffle addSubview:shuffleGlyph];
+
+    // The find-on-page toolbar the header conceals, whose Sort button is what the ⋯ sheet fires: one
+    // identifier, in the header rather than in a cell the list reuses (trees/continuous/1.txt:1000).
+    UIView *topAccessory = box(headerLayout, UIView.class, CGRectMake(0, 16, W, 134), @"_topAccessoryViewContainer");
+    UIView *toolbarHeader = box(topAccessory, _TtCO19LegacyUI_ECMCoreKit5Views10HeaderView.class, CGRectMake(0, 0, W, 134), nil);
+    UIView *toolbarContent = box(toolbarHeader, UIView.class, CGRectMake(16, 98, W - 32, 36), @"Components.Header.UI.Toolbar.Content");
+    UIView *sortContainer = box(toolbarContent, UIView.class, CGRectMake(W - 94, 0, 62, 36), @"Components.Header.UI.Toolbar.ButtonContainer");
+    sortContainer.hidden = YES;
+    UIButton *headerSort = (UIButton *)box(sortContainer, UIButton.class, CGRectMake(16, 0, 30, 36), @"Components.Header.UI.Toolbar.Button");
+    [headerSort setTitle:@"Sort" forState:UIControlStateNormal];
+    [headerSort addTarget:page action:@selector(sgr_pillFired:) forControlEvents:UIControlEventTouchUpInside];
+    headerSort.accessibilityLabel = @"Sort";
 
     // the play button, in the header's foreground plane
     UIView *foreground = box(headerLayout, UIView.class, headerLayout.bounds, @"_foregroundViewContainer");
@@ -569,6 +715,87 @@ static void buildLikedSongs(UIViewController *page, CGFloat W) {
         [(SPTFreeTierPlaylistEncoreHeaderViewController *)headerVC entityHeaderViewController:nil didUpdateVisibleRect:CGRectZero];
         NSLog(@"[harness] after Spotify's fade back in: cover a=%.2f layer.hidden=%d, wash a=%.2f layer.hidden=%d",
               cover.alpha, cover.layer.hidden, gradient.alpha, gradient.layer.hidden);
+    });
+
+    // The ⋯ the redesign pins over the page: outside the list and the header both, so it holds its place
+    // while the header collapses and the list scrolls (issue #57). Tapped, it fires Spotify's own.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIView *pinned = nil;
+        for (UIView *sub in page.view.subviews) {
+            if ([NSStringFromClass(sub.class) isEqualToString:@"SGRMirrorButton"]) pinned = sub;
+        }
+        UIImageView *pinnedGlyph = nil;
+        for (UIView *sub in pinned.subviews) {
+            if ([sub isKindOfClass:UIImageView.class]) pinnedGlyph = (UIImageView *)sub;
+        }
+        NSLog(@"[harness] pinned more: %@ on the page, hidden=%d, glyph %@ tinted %@",
+              pinned ? NSStringFromCGRect(pinned.frame) : @"MISSING", pinned.hidden,
+              pinnedGlyph.image.renderingMode == UIImageRenderingModeAlwaysTemplate ? @"template" : @"as Spotify drew it",
+              pinnedGlyph.tintColor);
+        UIView *hit = [page.view hitTest:CGPointMake(CGRectGetMidX(pinned.frame), CGRectGetMidY(pinned.frame)) withEvent:nil];
+        NSLog(@"[harness] pinned more takes the touch: %@", NSStringFromClass(hit.class));
+        // The wash over the hero: its gradient concealed and its own black taken off, so the picture shows
+        // through whether the Mix feature raised its alpha or not.
+        NSLog(@"[harness] the plane's second wash: a=%.2f, paint a=%.0f, gradient %@", mixWash.alpha,
+              mixWash.layer.backgroundColor ? CGColorGetAlpha(mixWash.layer.backgroundColor) : 0,
+              mixGradient.layer.mask ? @"masked" : @"DRAWN");
+        // The creator line: a tap on the name, nowhere else.
+        UIView *info = nil;
+        for (UIView *v = block; v; v = nil) {
+            for (UIView *sub in v.subviews) if ([NSStringFromClass(sub.class) isEqualToString:@"SGRHeaderInfo"]) info = sub;
+        }
+        UIView *name = nil;
+        for (UIView *sub in info.subviews) {
+            if ([sub isKindOfClass:UILabel.class] && [((UILabel *)sub).text isEqualToString:@"The Weeknd"]) name = sub;
+        }
+        UIView *onName = [info hitTest:CGPointMake(CGRectGetMidX(name.bounds) + name.frame.origin.x, CGRectGetMidY(name.frame)) withEvent:nil];
+        UIView *besideName = [info hitTest:CGPointMake(24, CGRectGetMidY(name.frame)) withEvent:nil];
+        NSLog(@"[harness] creator line: on the name %@, beside it %@", onName ? NSStringFromClass(onName.class) : @"through",
+              besideName ? NSStringFromClass(besideName.class) : @"through");
+        for (UIGestureRecognizer *tap in name.gestureRecognizers) {
+            [tap.view.superview performSelector:NSSelectorFromString(@"sgr_creatorTapped")];
+        }
+        // The list asks every cell how tall it wants to be, which is where the curation row answers 0 and
+        // closes up: the harness's list is a plain scroll view, so it asks the way ListLayout does.
+        if (handover) {
+            UICollectionViewLayoutAttributes *wanted = [UICollectionViewLayoutAttributes layoutAttributesForCellWithIndexPath:
+                                                        [NSIndexPath indexPathForItem:0 inSection:0]];
+            wanted.frame = curation.frame;
+            CGSize answered = [(UICollectionViewCell *)curation preferredLayoutAttributesFittingAttributes:wanted].size;
+            curation.frame = CGRectMake(0, curation.frame.origin.y, answered.width, answered.height);
+            NSLog(@"[harness] the curation row answered %.0fpt tall", answered.height);
+        }
+    });
+
+    // The ⋯ sheet: tapping the pinned button records the page, and the menu that opens a moment later takes
+    // Sort and Mix into its table's header (issue #53). Then Sort is tapped, which has to fire Spotify's own
+    // pill even though its cell is closed up to nothing.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIControl *pinnedMore = nil;
+        for (UIView *sub in page.view.subviews) {
+            if ([NSStringFromClass(sub.class) isEqualToString:@"SGRMirrorButton"]) pinnedMore = (UIControl *)sub;
+        }
+        [pinnedMore sendActionsForControlEvents:UIControlEventTouchDown];
+        [pinnedMore sendActionsForControlEvents:UIControlEventTouchUpInside];
+        _TtC24ContextMenu_InternalImpl25ContextMenuViewController *menu =
+            [_TtC24ContextMenu_InternalImpl25ContextMenuViewController new];
+        [page presentViewController:menu animated:NO completion:^{
+            [menu.view setNeedsLayout];
+            [menu.view layoutIfNeeded];
+            [menu.table layoutIfNeeded];
+            UIView *block = menu.table.tableHeaderView;
+            NSMutableArray<NSString *> *rows = [NSMutableArray array];
+            for (UIView *row in block.subviews) {
+                if (!row.hidden) [rows addObject:[NSString stringWithFormat:@"%@ %@", row.accessibilityLabel,
+                                                  NSStringFromCGRect(row.frame)]];
+            }
+            NSLog(@"[harness] the sheet's header is %@ %.0fpt: %@ (handover %d)",
+                  block ? NSStringFromClass(block.class) : @"MISSING", block.bounds.size.height,
+                  [rows componentsJoinedByString:@", "], handover);
+            for (UIView *row in block.subviews) {
+                if (!row.hidden) [(UIControl *)row sendActionsForControlEvents:UIControlEventTouchUpInside];
+            }
+        }];
     });
 
     // Spotify lays the column and the action row out again after the header's pass: their children go back

@@ -28,6 +28,10 @@ typedef NS_ENUM(NSInteger, SGLiveActivityTab) {
 };
 
 static const NSTimeInterval kTick = 0.25;
+// Paused, the only thing on the card that still moves is the sleep timer, and a slower tick catches
+// its end well within the second the card shows. Four ticks a second for a still card is a wake up
+// eighty times a minute for a picture that does not change.
+static const NSTimeInterval kPausedTick = 1;
 // Past a line's sung end by this much, with the next line at least this far off, the line gives way to a note.
 static const NSInteger kBreakMs = 4000;
 // Seconds between attempts to start one, so a refused request (activities turned off) is not retried every tick.
@@ -40,6 +44,7 @@ static const NSUInteger kUpNextPanel = 3;
 static const NSInteger kEndOfTrackMs = 500;
 
 static NSTimer *sg_timer;
+static NSTimeInterval sg_tickEvery;
 static NSString *sg_shown;
 static NSString *sg_missingLyrics;
 static NSDate *sg_lastStart;
@@ -47,6 +52,16 @@ static SGLiveActivityTab sg_tab;
 // The sleep timer: an end, or the end of the track it was set on.
 static NSDate *sg_sleepEnd;
 static NSString *sg_sleepTrack;
+
+static void tick(void) API_AVAILABLE(ios(17.0));
+
+// An NSTimer cannot be asked to change pace, so changing it is putting one down and another up.
+static void startTimer(NSTimeInterval every) API_AVAILABLE(ios(17.0)) {
+    [sg_timer invalidate];
+    sg_tickEvery = every;
+    sg_timer = [NSTimer timerWithTimeInterval:every repeats:YES block:^(NSTimer *t) { tick(); }];
+    [NSRunLoop.mainRunLoop addTimer:sg_timer forMode:NSRunLoopCommonModes];
+}
 
 // Sends `shown`, what the activity is to show as one string, unless it is showing that already; starts
 // the activity when there is none and the app is in front.
@@ -140,6 +155,8 @@ static void tick(void) API_AVAILABLE(ios(17.0)) {
 
     NSInteger view = SGInt(SGKeyLiveActivityView, SGLiveActivityLyrics);
     BOOL paused = state.isPaused;
+    NSTimeInterval every = paused ? kPausedTick : kTick;
+    if (sg_timer && sg_tickEvery != every) startTimer(every);
     NSString *line = @"", *next = @"";
     if (view == SGLiveActivityLyrics) line = lyricsLine(trackID, &next);
 
@@ -260,8 +277,7 @@ void SGSetLiveActivityEnabled(BOOL on) {
                 if (sg_timer) tick();
             }];
         });
-        sg_timer = [NSTimer timerWithTimeInterval:kTick repeats:YES block:^(NSTimer *t) { tick(); }];
-        [NSRunLoop.mainRunLoop addTimer:sg_timer forMode:NSRunLoopCommonModes];
+        startTimer(kTick);
         SGLog(@"live activity: on");
     }
 }
