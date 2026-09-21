@@ -29,11 +29,16 @@
     _scrollView = scrollView;
     _travel = 0;
     [scrollView.panGestureRecognizer addTarget:self action:@selector(pan:)];
+    // Removing the old pan target can skip its ended callback. A new page starts a new
+    // scrolling relationship; ordinary refreshes of the same page leave the gesture alone.
+    if (@available(iOS 26.0, *)) {
+        if (self.permitted) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
+    }
 }
 - (void)setPermitted:(BOOL)permitted {
     if (@available(iOS 26.0, *)) {
+        if (_permitted == permitted) return;
         UITabBarMinimizeBehavior policy = permitted ? UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
-        if (_permitted == permitted && self.tabController.tabBarMinimizeBehavior == policy) return;
         _permitted = permitted;
         _travel = 0;
         self.tabController.tabBarMinimizeBehavior = policy;
