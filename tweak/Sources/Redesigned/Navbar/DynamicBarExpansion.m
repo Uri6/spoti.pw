@@ -1,45 +1,47 @@
 #import "DynamicBarExpansion.h"
-#import <objc/message.h>
 #import <objc/runtime.h>
-#include <string.h>
 
-// Verified in UIKit's runtime metadata: _isMinimized B16@0:8 and _setMinimized: v20@0:8B16.
-// Check the actual receiver on each runtime before calling; never resolve an ivar, walk private
-// subviews, send a fake tap, or change Spotify's own tab bar. The public minimize-policy setter
-// resets layout without animation on iOS 27 and therefore cannot serve as an expansion command.
-static BOOL signature(id object, SEL selector, const char *result, NSUInteger arguments) {
-    if (![object respondsToSelector:selector]) return NO;
-    Method method = class_getInstanceMethod([object class], selector);
-    if (!method || method_getNumberOfArguments(method) != arguments) return NO;
-    char type[16];
-    method_getReturnType(method, type, sizeof(type));
-    if (strcmp(type, result)) return NO;
-    if (arguments == 3) {
-        method_getArgumentType(method, 2, type, sizeof(type));
-        if (strcmp(type, @encode(BOOL))) return NO;
-    }
-    return YES;
+static void (*originalWithoutAnimation)(id, SEL, void (^)(void));
+static __thread NSUInteger expansionDepth;
+static NSUInteger wrapperCount;
+
+// UIKit 27 wraps a minimize-policy reset in +performWithoutAnimation:. Preserve the animation
+// context only for the synchronous policy write that expands our own native chrome. Every other
+// invocation, including those on other threads, follows the original implementation unchanged.
+static void withoutAnimation(id receiver, SEL selector, void (^actions)(void)) {
+    if (expansionDepth && NSThread.isMainThread && actions) {
+        wrapperCount++;
+        actions();
+    } else originalWithoutAnimation(receiver, selector, actions);
 }
-BOOL SGRDynamicBarCanExpand(UITabBar *bar) {
-    return [bar isKindOfClass:UITabBar.class] &&
-        signature(bar, NSSelectorFromString(@"_isMinimized"), @encode(BOOL), 2) &&
-        signature(bar, NSSelectorFromString(@"_setMinimized:"), @encode(void), 3);
+static void installCompatibility(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Method method = class_getClassMethod(UIView.class, @selector(performWithoutAnimation:));
+        originalWithoutAnimation = (void *)method_setImplementation(method, (IMP)withoutAnimation);
+    });
 }
-BOOL SGRDynamicBarIsMinimized(UITabBar *bar) {
-    return SGRDynamicBarCanExpand(bar) && ((BOOL (*)(id, SEL))objc_msgSend)(bar, NSSelectorFromString(@"_isMinimized"));
-}
+NSUInteger SGRDynamicBarExpansionWrapperCount(void) { return wrapperCount; }
 BOOL SGRDynamicBarExpand(UITabBarController *controller, BOOL animated) {
-    UITabBar *bar = controller.tabBar;
-    if (!SGRDynamicBarCanExpand(bar)) return NO;
-    if (!SGRDynamicBarIsMinimized(bar)) return YES;
-    [controller.view layoutIfNeeded];
-    void (^changes)(void) = ^{
-        ((void (*)(id, SEL, BOOL))objc_msgSend)(bar, NSSelectorFromString(@"_setMinimized:"), NO);
+    if (@available(iOS 26.0, *)) {
+        if (!controller) return NO;
+        if (controller.tabBarMinimizeBehavior == UITabBarMinimizeBehaviorNever) return YES;
+        BOOL animate = animated && !UIAccessibilityIsReduceMotionEnabled() && controller.viewIfLoaded.window;
+        if (animate) installCompatibility();
         [controller.view layoutIfNeeded];
-    };
-    if (!animated || UIAccessibilityIsReduceMotionEnabled() || !bar.window) changes();
-    else [UIView animateWithDuration:0.36 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
-                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                         animations:changes completion:nil];
-    return YES;
+        void (^changes)(void) = ^{
+            if (animate) expansionDepth++;
+            @try { controller.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever; }
+            @finally { if (animate) expansionDepth--; }
+            // Explicitly end the compatibility scope before asking Spotify's original player
+            // hierarchy to finish its layout, so its own no-animation work stays unchanged.
+            [controller.view layoutIfNeeded];
+        };
+        if (!animate) changes();
+        else [UIView animateWithDuration:0.36 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
+                                options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
+                             animations:changes completion:nil];
+        return YES;
+    }
+    return NO;
 }

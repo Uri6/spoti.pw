@@ -1,7 +1,7 @@
 #import <UIKit/UIKit.h>
 
-// Keeps the native minimize policy stable. A verified compatibility bridge expands the native
-// bar on a reverse drag without the policy reset that cancels the animation on iOS 27.
+// Expands the owned native bar on a reverse drag using the public policy setter, with a scoped
+// compatibility fix for its no-animation transaction on iOS 27.
 // The real scroll delegate, gestures and application containment remain unchanged.
 @interface SGRDynamicBarScrollDriver : NSObject
 @property(nonatomic, weak) UITabBarController *tabController;

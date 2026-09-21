@@ -25,8 +25,8 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
   Native selection is forwarded to the original tab sources, and its accepted selection is mirrored
   back. Home's long press uses the existing Mod Settings action.
 - `DynamicBarScrollDriver` observes the existing pan recognizer without replacing its delegate.
-  The r12 candidate uses the verified native minimized-state setter to expand without changing
-  `.onScrollDown` during a gesture or at its end.
+  The r13 candidate expands via the public `.never` policy with a scoped animation compatibility
+  boundary, and rearms `.onScrollDown` at gesture end for the next collapse.
 - `LiveBarLayout` leases the original player's layout. `LiveBarConstraints` recognizes the captured
   9.1.78 audio profile: four root edge pins, 56-point root/card heights, and artwork with 8-point
   vertical padding. It temporarily replaces root placement constraints and adjusts card height and
@@ -53,9 +53,9 @@ The public UIKit APIs are `UITabBarController.tabBarMinimizeBehavior`, `UITabAcc
 `bottomAccessory`, `UITraitCollection.tabAccessoryEnvironment`, and
 `UIViewController.setContentScrollView(_:for:)`. See [Apple's UIKit demonstration](https://developer.apple.com/videos/play/wwdc2025/284/)
 and [content scroll-view documentation](https://developer.apple.com/documentation/uikit/uiviewcontroller/setcontentscrollview(_:for:)).
-A standalone `UITabBar` cannot provide this behavior by itself. Short upward reversals additionally
-use the isolated, signature-checked private UIKit expansion bridge documented below; this is not a
-public Apple API and must be validated on each supported runtime.
+A standalone `UITabBar` cannot provide this behavior by itself. The r13 candidate additionally
+intercepts the public no-animation wrapper only during its own expansion policy write, as detailed
+below. This compatibility behavior must be validated on each supported runtime.
 
 Accessibility fallback observes Apple's documented status notifications and capabilities in
 [UIAccessibility](https://developer.apple.com/documentation/uikit/uiaccessibility).
@@ -254,3 +254,18 @@ instead of waiting for Spotify's label color and the 250 ms fallback repaint. Re
 not optimistically select a new page. Diagnostic counters measure refresh cost and time spent in
 the original navigation action, so remaining stalls can be attributed on the phone. USB diagnostics
 start after dylib loading finishes to avoid an initialization race with FLEX.
+
+### r12 rejected before installation; r13 public-policy candidate
+
+r12 built but failed validation: 67 tests passed and five failed. Direct `_setMinimized:` calls
+raise Apple's "This can only be called by an approved app" exception. Signature matching was
+insufficient. The candidate was **not installed**; the private calls and capability gate were
+removed, and no attempt is made to bypass that restriction.
+
+r13 returns to the public policy setter. A thread-local, main-thread-only compatibility scope
+preserves the enclosing animation when UIKit calls `+[UIView performWithoutAnimation:]` during
+that one write on our owned tab controller. Outside that scope the original implementation is
+called, including on other threads. The scope ends in `@finally` before the explicit final layout.
+This is a scoped method interception, not a private expansion API. Nonanimated and Reduce Motion
+paths do not enter the scope. The diagnostic trace counts intercepted wrappers so the hypothesis
+can be verified on the physical runtime; real gesture and isolation tests remain required.

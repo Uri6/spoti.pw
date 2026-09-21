@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 
-// Private UIKit compatibility boundary, limited to the native tab bar we own. Missing or
-// changed method signatures disable minimization rather than leave an unexpandable bar.
-BOOL SGRDynamicBarCanExpand(UITabBar *bar);
-BOOL SGRDynamicBarIsMinimized(UITabBar *bar);
+// Expands only our owned native tab controller using the public minimize policy. The animation
+// compatibility scope suppresses UIKit's no-animation wrapper only during that one policy write.
 BOOL SGRDynamicBarExpand(UITabBarController *controller, BOOL animated);
+NSUInteger SGRDynamicBarExpansionWrapperCount(void);

@@ -20,7 +20,7 @@
         CALayer *barLayer = bar.layer.presentationLayer, *slotLayer = slot.layer.presentationLayer;
         CGRect barRect = window && barLayer ? [barLayer convertRect:barLayer.bounds toLayer:window] : CGRectNull;
         CGRect slotRect = window && slotLayer ? [slotLayer convertRect:slotLayer.bounds toLayer:window] : CGRectNull;
-        self.diagnosticEvent([NSString stringWithFormat:@"expansion sample t=%.3f bar=%@ slot=%@", link.timestamp - _diagnosticStart, NSStringFromCGRect(barRect), NSStringFromCGRect(slotRect)]);
+        self.diagnosticEvent([NSString stringWithFormat:@"expansion sample t=%.3f bar=%@ slot=%@ wrappers=%lu", link.timestamp - _diagnosticStart, NSStringFromCGRect(barRect), NSStringFromCGRect(slotRect), (unsigned long)SGRDynamicBarExpansionWrapperCount()]);
     }
 }
 - (void)setScrollView:(UIScrollView *)scrollView {
@@ -32,7 +32,6 @@
 }
 - (void)setPermitted:(BOOL)permitted {
     if (@available(iOS 26.0, *)) {
-        permitted = permitted && SGRDynamicBarCanExpand(self.tabController.tabBar);
         UITabBarMinimizeBehavior policy = permitted ? UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
         if (_permitted == permitted && self.tabController.tabBarMinimizeBehavior == policy) return;
         _permitted = permitted;
@@ -44,7 +43,7 @@
 // UIKit's automatic reversal otherwise waits until the page reaches its leading edge.
 - (void)recordExpansionIntent {
     if (!self.diagnosticEvent || _diagnosticLink) return;
-    self.diagnosticEvent(@"native expansion intent");
+    self.diagnosticEvent([NSString stringWithFormat:@"expansion intent offset=%.1f wrappers=%lu", self.scrollView.contentOffset.y, (unsigned long)SGRDynamicBarExpansionWrapperCount()]);
     _diagnosticStart = CACurrentMediaTime();
     _diagnosticLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleExpansion:)];
     // A diagnostic observer must not reduce ProMotion's cadence while a transition runs.
@@ -63,7 +62,13 @@
         _travel = 0;
         return;
     }
-    if (pan.state != UIGestureRecognizerStateChanged) { _travel = 0; return; }
+    if (pan.state != UIGestureRecognizerStateChanged) {
+        _travel = 0;
+        if (self.permitted && (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled)) {
+            if (@available(iOS 26.0, *)) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
+        }
+        return;
+    }
     CGFloat delta = offset - _lastOffset;
     _lastOffset = offset;
     if (!self.permitted || !isfinite(delta) || bottom - top < 32) return;
@@ -71,7 +76,7 @@
     if (fabs(velocity.x) > fabs(velocity.y)) return;
     if (offset <= top + 1) {
         _travel = 0;
-        if (SGRDynamicBarIsMinimized(self.tabController.tabBar)) {
+        if (self.tabController.tabBarMinimizeBehavior != UITabBarMinimizeBehaviorNever) {
             [self recordExpansionIntent];
             SGRDynamicBarExpand(self.tabController, YES);
         }
@@ -80,7 +85,7 @@
     if (delta == 0) return; // No intent from rubber-banding beyond either edge.
     if ((_travel > 0 && delta < 0) || (_travel < 0 && delta > 0)) _travel = 0;
     _travel += delta;
-    if (_travel < -8 && SGRDynamicBarIsMinimized(self.tabController.tabBar)) {
+    if (_travel < -8 && self.tabController.tabBarMinimizeBehavior != UITabBarMinimizeBehaviorNever) {
         [self recordExpansionIntent];
         SGRDynamicBarExpand(self.tabController, YES);
     }
