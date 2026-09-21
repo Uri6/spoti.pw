@@ -14,6 +14,8 @@
 @property(nonatomic, strong) SGRAccessorySlot *slot;
 @property(nonatomic, strong) SGRDynamicBarScrollDriver *scrollDriver;
 @property(nonatomic) BOOL holding;
+@property(nonatomic, weak) UIViewController *boundProxy;
+@property(nonatomic, weak) UIScrollView *boundScroll;
 @property(nonatomic, weak) UILongPressGestureRecognizer *hold;
 @end
 
@@ -104,7 +106,6 @@
         for (NSUInteger i = 0; i < items.count; i++) {
             UIViewController *proxy = [UIViewController new];
             proxy.view.backgroundColor = UIColor.clearColor;
-            [proxy setContentScrollView:self.observedScrollView forEdge:NSDirectionalRectEdgeAll];
             [pages addObject:proxy];
         }
         self.tabController.viewControllers = pages;
@@ -120,6 +121,16 @@
         mirror.tag = i;
     }];
     if (self.tabController.selectedIndex != index) self.tabController.selectedIndex = index;
+    // One real page has one active presentation proxy. Registering it on every tab lets
+    // inactive proxies compete for the same native scrolling/minimization relationship.
+    UIViewController *selected = self.tabController.selectedViewController;
+    if (self.boundProxy != selected || self.boundScroll != self.observedScrollView) {
+        [self.boundProxy setContentScrollView:nil forEdge:NSDirectionalRectEdgeAll];
+        [selected setContentScrollView:self.observedScrollView forEdge:NSDirectionalRectEdgeAll];
+        self.boundProxy = selected;
+        self.boundScroll = self.observedScrollView;
+        self.scrollDriver.scrollView = self.observedScrollView;
+    }
 }
 - (BOOL)tabBarController:(UITabBarController *)controller shouldSelectViewController:(UIViewController *)viewController {
     if (self.holding) return NO;
@@ -131,10 +142,8 @@
 - (void)setObservedScrollView:(UIScrollView *)scrollView {
     if (_observedScrollView == scrollView) return;
     _observedScrollView = scrollView;
-    self.scrollDriver.scrollView = scrollView;
-    for (UIViewController *proxy in self.tabController.viewControllers) {
-        [proxy setContentScrollView:scrollView forEdge:NSDirectionalRectEdgeAll];
-    }
+    // Applied together with the accepted selected index in setItems:, after Spotify's
+    // original navigation action. Never bind a new page to all inactive proxy tabs.
 }
 - (NSUInteger)itemIndexAt:(CGPoint)point {
     UITabBar *bar = self.tabController.tabBar;
@@ -183,6 +192,8 @@
     self.scrollDriver.permitted = permitsMinimization;
 }
 - (void)invalidate {
+    [self.boundProxy setContentScrollView:nil forEdge:NSDirectionalRectEdgeAll];
+    self.boundProxy = nil; self.boundScroll = nil;
     [self.scrollDriver invalidate];
     self.permitsMinimization = NO;
     self.observedScrollView = nil;

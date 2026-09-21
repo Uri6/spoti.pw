@@ -1,8 +1,8 @@
 #import <UIKit/UIKit.h>
 
-// UIKit minimized for an external scroll owner on iOS 26.5, but did not expand on reversal. This
-// adapter supplies that missing intent using the real page's existing pan recognizer. It never
-// replaces the scroll delegate or synthesizes a scroll, touch, or private UIKit transition.
+// Keeps the native minimize policy stable for the lifetime of an eligible host. The real
+// page remains the designated content scroll view; UIKit owns both transition directions.
+// The existing pan recognizer is observed only for bounded diagnostic sampling.
 @interface SGRDynamicBarScrollDriver : NSObject
 @property(nonatomic, weak) UITabBarController *tabController;
 @property(nonatomic, weak) UIScrollView *scrollView;

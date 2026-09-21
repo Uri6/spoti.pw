@@ -110,6 +110,43 @@
     [self refresh];
     [self assertRestored];
 }
+- (void)testOrdinaryTabReselectionKeepsHostAndPlayerLease {
+    SGRDynamicBarHost *host = self.host;
+    CGRect frame = self.player.view.frame;
+    __block NSUInteger actions = 0;
+    SGRDynamicBarUpdateTabs(self.tabs, self.stock, self.mirror, @[self.stock], ^(UIView *source) {
+        XCTAssertEqual(source, self.stock);
+        actions++;
+    });
+    [host.delegate dynamicBarHost:host didSelectIndex:0];
+    XCTAssertEqual(actions, 1);
+    XCTAssertEqual(self.host, host);
+    XCTAssertTrue(CGRectEqualToRect(frame, self.player.view.frame));
+    XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
+}
+- (void)testAcceptedTabChangeKeepsHostAndBindsTheNewScrollOwner {
+    SGRDynamicBarHost *host = self.host;
+    UIViewController *next = [UIViewController new];
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:self.tabs.view.bounds];
+    scroll.contentSize = CGSizeMake(scroll.bounds.size.width, 3000);
+    next.view = scroll;
+    [self add:next to:self.tabs frame:self.tabs.view.bounds];
+    self.mirror.items = @[self.mirror.items.firstObject,
+        [[UITabBarItem alloc] initWithTitle:@"Library" image:[UIImage systemImageNamed:@"books.vertical"] tag:1]];
+    self.mirror.selectedItem = self.mirror.items.firstObject;
+    NSArray *sources = @[self.stock, scroll];
+    SGRDynamicBarUpdateTabs(self.tabs, self.stock, self.mirror, sources, ^(UIView *source) {
+        XCTAssertEqual(source, scroll);
+        self.tabs.selectedViewController = next;
+        self.mirror.selectedItem = self.mirror.items[1];
+    });
+    [host.delegate dynamicBarHost:host didSelectIndex:1];
+    XCTAssertEqual(self.host, host);
+    XCTAssertEqual(host.observedScrollView, scroll);
+    XCTAssertEqual(host.tabController.selectedIndex, 1);
+    XCTAssertEqualWithAccuracy(self.mirror.alpha, 0, 0.001);
+    XCTAssertEqual(self.player.parentViewController, self.tabs);
+}
 - (void)testSnapshotSetupSuspendsBeforeAnAnimatorHasItsBar {
     XCTAssertNotNil(self.host);
     NSObject *transition = [NSObject new];

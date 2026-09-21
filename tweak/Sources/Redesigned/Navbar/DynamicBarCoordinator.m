@@ -185,8 +185,12 @@ static BOOL enabled(void) {
     if (index >= self.sources.count) return;
     UIView *source = self.sources[index];
     self.failedPlacement = NO;
-    [self detach];
+    [self recordEvent:@"original tab action"];
+    // An ordinary tab action does not take a player snapshot. Keep UIKit's chrome and
+    // the live layout lease; the accepted stock selection rebinds the selected proxy.
+    // Actual player transitions, unknown pages and incompatible layouts still detach.
     if (self.select) self.select(source);
+    [self refresh];
 }
 - (void)dynamicBarHost:(SGRDynamicBarHost *)host accessoryRect:(CGRect)rect inView:(UIView *)view inline:(BOOL)inlineLayout {
     if (self.updating || self.layout.applying || host != self.host) return;

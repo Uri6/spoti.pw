@@ -28,7 +28,6 @@
     _scrollView = scrollView;
     _travel = 0;
     [scrollView.panGestureRecognizer addTarget:self action:@selector(pan:)];
-    [self expandAnimated:NO];
 }
 - (void)setPermitted:(BOOL)permitted {
     if (_permitted == permitted) return;
@@ -39,29 +38,14 @@
             UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever;
     }
 }
-- (void)expandAnimated:(BOOL)animated {
-    if (@available(iOS 26.0, *)) {
-        UITabBarController *controller = self.tabController;
-        if (!controller || controller.tabBarMinimizeBehavior == UITabBarMinimizeBehaviorNever) return;
-        if (self.diagnosticEvent) {
-            self.diagnosticEvent([NSString stringWithFormat:@"expand request animated=%d enabled=%d inherited=%.3f permitted=%d", animated, UIView.areAnimationsEnabled, UIView.inheritedAnimationDuration, self.permitted]);
-            [_diagnosticLink invalidate];
-            _diagnosticStart = CACurrentMediaTime();
-            _diagnosticLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleExpansion:)];
-            [_diagnosticLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
-        }
-        void (^changes)(void) = ^{
-            if (self.diagnosticEvent) self.diagnosticEvent([NSString stringWithFormat:@"expand transaction enabled=%d inherited=%.3f", UIView.areAnimationsEnabled, UIView.inheritedAnimationDuration]);
-            controller.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
-            // Keep native chrome and the original player's constraint lease in one transaction.
-            [controller.view layoutIfNeeded];
-        };
-        if (!animated || UIAccessibilityIsReduceMotionEnabled() || !controller.viewIfLoaded.window) { changes(); return; }
-        [controller.view layoutIfNeeded];
-        [UIView animateWithDuration:0.36 delay:0 usingSpringWithDamping:0.86 initialSpringVelocity:0
-                            options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction
-                         animations:changes completion:nil];
-    }
+// Observe the reversal for diagnostic frames only. Changing the minimize policy here
+// cancels UIKit's interactive transition; on device it lays out with animations disabled.
+- (void)recordExpansionIntent {
+    if (!self.diagnosticEvent || _diagnosticLink) return;
+    self.diagnosticEvent(@"native expansion intent");
+    _diagnosticStart = CACurrentMediaTime();
+    _diagnosticLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(sampleExpansion:)];
+    [_diagnosticLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
     UIScrollView *scroll = self.scrollView;
@@ -74,28 +58,17 @@
         _travel = 0;
         return;
     }
-    if (pan.state != UIGestureRecognizerStateChanged) {
-        _travel = 0;
-        // UIKit starts observing minimization at the next gesture. Leaving `.never` in place
-        // until that gesture is already moving loses its beginning and can miss the whole drag.
-        if (self.permitted && (pan.state == UIGestureRecognizerStateEnded || pan.state == UIGestureRecognizerStateCancelled)) {
-            if (@available(iOS 26.0, *)) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
-        }
-        return;
-    }
+    if (pan.state != UIGestureRecognizerStateChanged) { _travel = 0; return; }
     CGFloat delta = offset - _lastOffset;
     _lastOffset = offset;
-    if (!self.permitted || !isfinite(delta) || bottom - top < 32) { [self expandAnimated:NO]; return; }
+    if (!self.permitted || !isfinite(delta) || bottom - top < 32) return;
     CGPoint velocity = [pan velocityInView:scroll];
     if (fabs(velocity.x) > fabs(velocity.y)) return;
-    if (offset <= top + 1) { _travel = 0; [self expandAnimated:YES]; return; }
+    if (offset <= top + 1) { _travel = 0; [self recordExpansionIntent]; return; }
     if (delta == 0) return; // No intent from rubber-banding beyond either edge.
     if ((_travel > 0 && delta < 0) || (_travel < 0 && delta > 0)) _travel = 0;
     _travel += delta;
-    if (_travel < -8) [self expandAnimated:YES];
-    else if (_travel > 24) {
-        if (@available(iOS 26.0, *)) self.tabController.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorOnScrollDown;
-    }
+    if (_travel < -8) [self recordExpansionIntent];
 }
 - (void)invalidate {
     [_diagnosticLink invalidate]; _diagnosticLink = nil;

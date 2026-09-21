@@ -208,3 +208,19 @@ Private run `35588127738` built r9 from `54a99bc438d1026424668462f903f1bb7344f87
 The user confirmed that r9 now collapses with video, but expansion still jumps. The live device snapshot showed an active host, no current placement failure, a 48-point live surface preserving its aspect, and a historical source-geometry rejection. That historical message alone cannot establish when the host was rebuilt.
 
 r10 retains a bounded, diagnostic-only event history across host replacement. It records attachment/removal, media callbacks, placement environment and animation context, plus 0.8 seconds of presentation-layer samples after an expansion request. Sampling uses the display's default cadence without changing layout or playback. It runs only when FLEX is present. This distinguishes missing animation from host replacement on the physical iOS 27 device; r10 does not claim to fix expansion.
+
+### Physical r10 expansion trace and r11 candidate
+
+Independent iPhone Mirroring reproduction on iOS 27 confirms that upward scrolling changes the
+accessory from inline to regular with `UIView.areAnimationsEnabled == NO` inside the `.never`
+setter, despite the surrounding 0.36-second animation. The same host remains attached throughout;
+the slot and live card jump from y=798 to y=735 between adjacent frames. This is not a host
+replacement or a video-only defect. The user also reports that tapping a collapsed tab expands
+smoothly and that ordinary page selection has become slow.
+
+The r11 candidate removes policy writes during an active gesture and binds the real scroll view
+only to the selected presentation proxy. UIKit retains ownership of both transition directions.
+Ordinary tab actions retain the native host and live constraint lease instead of unconditionally
+tearing them down; the existing transition, eligibility and geometry checks still release them.
+Two coordinator regressions cover reselection and accepted navigation without host replacement.
+Native reversal on the simulator and actual iPhone must pass before this candidate is accepted.
