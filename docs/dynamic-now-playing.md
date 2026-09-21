@@ -30,7 +30,7 @@ navigation actions. The feature does not reconstruct Now Playing from the shared
 - `LiveBarLayout` leases the original player's layout. `LiveBarConstraints` recognizes the captured
   9.1.78 audio profile: four root edge pins, 56-point root/card heights, and artwork with 8-point
   vertical padding. It temporarily replaces root placement constraints and adjusts card height and
-  padding, retaining the 40-point artwork/control row. Other frame-based layouts use bounds/center. It checks
+  padding, retaining the 40-point artwork/control row and the original enclosing bar height. Other frame-based layouts use bounds/center. It checks
   ancestor transforms/clipping, the actual card's post-layout frame, and control containment. It
   never reparents, scales or snapshots the player. Restoration only rewrites properties still owned
   by the lease. Spotify reclaiming the geometry suspends the adapter rather than causing a layout
@@ -76,14 +76,14 @@ summaries/attachments, and preserves the test command's exit status. Full Theos 
 the result into the privately supplied Spotify 9.1.78 IPA; the app binary and recordings stay out of
 the public repository.
 
-Verified test revision: `b7b8941e44aabc38f33eb4d4f5788eb3b3449501`, 2026-09-21. Private run
-`35548171834` completed with **52 passed, 0 failed, 0 skipped**. The IPA was built by run
-`35547829963` from `b119fdac2f87aa675717435df36fb609e085ff0a`; the production `tweak/` sources
-are identical between these revisions. The follow-up changes only test coordinates and harness docs.
+Verified revision: `33b012ea636bee6df875ab36a80bd615d040fd08` (r5), 2026-09-21. Private run
+`35548654220` completed with **53 passed, 0 failed, 0 skipped**, and built the full diagnostic IPA
+from the same commit. The previous r4 52-test result is historical and did not pass physical
+acceptance; see the device findings below.
 
 | Check | Result |
 | --- | --- |
-| Live layout lease and fitting | 20 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
+| Live layout lease and fitting | 21 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
 | Content and scroll capability inspection | 18 UIKit unit tests passed, including the captured ElementView audio identities |
 | Coordinator interruption, readiness, restoration and read-only diagnostics | 11 UIKit unit tests passed |
 | Native-owned, externally-owned and constrained-player scrolling | 3 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
@@ -138,7 +138,8 @@ The next revision adds the narrow constraint lease and event-driven readiness re
 Regression coverage includes a captured constraint fixture, repeated width changes, restoration,
 foreign updates, reparenting, RTL, late Home population, scroll removal and unrelated scroll events.
 A third UI scenario exercises that constrained player through the real native accessory and scroll
-recognizer. All 52 tests passed in the follow-up run listed above. The first 52-test attempt passed all three
+recognizer. All 52 tests passed in r4 follow-up run `35548171834` (`b7b8941`). Its production sources
+were identical to the r4 IPA build (`b119fda`, run `35547829963`). The first 52-test attempt passed all three
 UI scenarios but failed a unit hit test that supplied a UIWindow instead of the production host
 view coordinate space. That assertion was corrected and rerun without changing the installed code.
 r4 was installed successfully, but the device still fell back. The new report showed the correct
@@ -146,4 +147,4 @@ r4 was installed successfully, but the device still fell back. The new report sh
 the enclosing Auto Layout bar's height; releasing them removed that sizing contribution. The next
 revision holds the original parent height during the lease, and tests both ambiguous layout and
 window position with a parent sized by its child instead of a fixed-frame parent. Physical
-acceptance remains pending.
+acceptance of r5 remains pending; its 53 tests include the child-sized parent regression.

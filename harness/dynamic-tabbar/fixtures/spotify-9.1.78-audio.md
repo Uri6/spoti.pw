@@ -57,3 +57,13 @@ Sanitized roles, no media text, pointer values or device identifiers:
 The reported card stayed 386×56 for a native 360×48 slot. `FixtureAudioPlayer` reproduces the
 root/card/artwork constraints with generic UIKit views, labels and a real target-action button.
 It is a structural regression fixture, not the Spotify binary or a validation of other variants.
+
+### Enclosing layout discovered by r4
+
+The root's parent is itself Auto Layout. Its height is implied by the source's four edge pins
+and 56-point self-height, rather than by an independent parent height constraint. Its enclosing
+passthrough view is bottom-anchored above the stock tabs and is 8 points taller than that parent.
+After r4 released the source pins, the device reported the correctly resized 360×48 card at
+`y=-332.5` in the native slot. The constraint lease now temporarily retains the original parent
+height as well. The unit fixture asserts unambiguous layout, unchanged parent window position and
+restoration; the constrained UI scenario uses a child-sized, bottom-anchored parent too.
