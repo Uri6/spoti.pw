@@ -83,21 +83,21 @@ summaries/attachments, and preserves the test command's exit status. Full Theos 
 the result into the privately supplied Spotify 9.1.78 IPA; the app binary and recordings stay out of
 the public repository.
 
-Verified revision: `8c131eadd122353e14687e3e13ab0d59f9ea8393` (r6), 2026-09-21. Private run
-`35550153517` completed with **64 passed, 0 failed, 0 skipped**, and built the full diagnostic IPA
+Verified revision: `02ab166cdc23cc32888c298b0db93a0cc9f3bc69` (r7), 2026-09-21. Private run
+`35550785180` completed with **65 passed, 0 failed, 0 skipped**, and built the full diagnostic IPA
 from the same commit. This includes the upstream main merge already present in the user fork. The previous r4 52-test result is historical and did not pass physical
 acceptance; see the device findings below.
 
 | Check | Result |
 | --- | --- |
-| Live layout lease and fitting | 25 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
+| Live layout lease and fitting | 26 UIKit unit tests passed, including the measured constraint graph, restoration and RTL |
 | Content and scroll capability inspection | 21 UIKit unit tests passed, including the captured ElementView audio identities |
 | Coordinator interruption, readiness, restoration and read-only diagnostics | 14 UIKit unit tests passed |
 | Native-owned, externally-owned, constrained audio and video scrolling | 4 UI tests passed; each performs 3 collapse/expand cycles, presses the original button each cycle and selects Library |
 | Pure fitting/interruption policy | Passed locally with AddressSanitizer and UndefinedBehaviorSanitizer |
 | Layer boundaries and patch whitespace | Passed |
 | Full Theos compile, package and IPA injection | Passed with the private Spotify 9.1.78 input |
-| Physical Spotify runtime | User confirmed audio collapse/expand in r5. Expansion animation was abrupt; video fell back as designed and is now an explicit support requirement. New candidate awaits installation and physical verification. |
+| Physical Spotify runtime | User confirmed audio collapse/expand in r5. Expansion animation was abrupt; video fell back as designed and is now an explicit support requirement. r6 video still rejected its layout; r7 follows the deeper capture and awaits physical verification. |
 
 The test command uses `pipefail`; its outcome and the exported individual test counts were checked
 separately. The final source revision is recorded so documentation-only follow-ups are not mistaken
@@ -166,7 +166,7 @@ not yet a physical result.
 
 The video candidate adds landscape/portrait aspect fixtures, surface/layer/parent identity checks,
 external dimension replacement and surface detachment, positive video eligibility, nested lifecycle
-suspension, and a fourth native gesture UI scenario. All 64 tests passed in the r6 run above; real video playback and audio/video switching still need
+suspension, and a fourth native gesture UI scenario. All 64 tests passed in r6 run `35550153517`; real video playback and audio/video switching still need
 physical verification. The fixture uses a generic colored view, not an actual decoder.
 
 ### r6 physical video diagnosis
@@ -175,4 +175,6 @@ r6 reached the physical iPhone and supplied the deeper read-only tree while vide
 The classifier admitted video (`content-blockers=0`), but the adapter rejected its constraint profile
 (`host=0`, `failed-placement=1`). The actual required aspect constraint belongs to the live surface,
 not the enclosing video controller view. r7 replaces the inferred dimension fixture with that
-captured ownership and preserves the surface's aspect constraint unchanged. r7 validation is pending.
+captured ownership and preserves the surface's aspect constraint unchanged. Private run `35550785180` passed all 65 tests and built the IPA from `02ab166`. Physical
+acceptance remains pending; the user reported no visible improvement with r6. The question of
+whether audio expansion was separately retested after r6 is still unanswered.
