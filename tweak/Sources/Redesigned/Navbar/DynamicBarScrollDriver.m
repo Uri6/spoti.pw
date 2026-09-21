@@ -52,7 +52,6 @@
     [_diagnosticLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
-    if (@available(iOS 26.0, *)) {} else return;
     UIScrollView *scroll = self.scrollView;
     if (!scroll || pan != scroll.panGestureRecognizer) return;
     CGFloat top = -scroll.adjustedContentInset.top;
@@ -77,18 +76,22 @@
     if (fabs(velocity.x) > fabs(velocity.y)) return;
     if (offset <= top + 1) {
         _travel = 0;
-        if (self.tabController.tabBarMinimizeBehavior != UITabBarMinimizeBehaviorNever) {
-            [self recordExpansionIntent];
-            SGRDynamicBarExpand(self.tabController, YES);
+        if (@available(iOS 26.0, *)) {
+            if (self.tabController.tabBarMinimizeBehavior != UITabBarMinimizeBehaviorNever) {
+                [self recordExpansionIntent];
+                SGRDynamicBarExpand(self.tabController, YES);
+            }
         }
         return;
     }
     if (delta == 0) return; // No intent from rubber-banding beyond either edge.
     if ((_travel > 0 && delta < 0) || (_travel < 0 && delta > 0)) _travel = 0;
     _travel += delta;
-    if (_travel < -8 && self.tabController.tabBarMinimizeBehavior != UITabBarMinimizeBehaviorNever) {
-        [self recordExpansionIntent];
-        SGRDynamicBarExpand(self.tabController, YES);
+    if (@available(iOS 26.0, *)) {
+        if (_travel < -8 && self.tabController.tabBarMinimizeBehavior != UITabBarMinimizeBehaviorNever) {
+            [self recordExpansionIntent];
+            SGRDynamicBarExpand(self.tabController, YES);
+        }
     }
 }
 - (void)invalidate {
