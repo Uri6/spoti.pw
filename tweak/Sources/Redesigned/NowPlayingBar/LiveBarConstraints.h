@@ -4,6 +4,7 @@
 // sizing while retaining original controller ownership, live surfaces and control sizes.
 @interface SGRLiveBarConstraints : NSObject
 @property(nonatomic, readonly) BOOL ownsConstraints;
+@property(nonatomic, readonly, copy) NSString *rejectionReason;
 - (instancetype)initWithSource:(UIView *)source card:(UIView *)card;
 - (BOOL)applyFrame:(CGRect)frame cardHeight:(CGFloat)height;
 - (void)restore;

@@ -178,3 +178,17 @@ not the enclosing video controller view. r7 replaces the inferred dimension fixt
 captured ownership and preserves the surface's aspect constraint unchanged. Private run `35550785180` passed all 65 tests and built the IPA from `02ab166`. Physical
 acceptance remains pending; the user reported no visible improvement with r6. The question of
 whether audio expansion was separately retested after r6 is still unanswered.
+
+### r7 physical rejection and r8 diagnostics
+
+r7 was installed successfully over USB. Its first audio capture showed `host=1`, no blockers and
+no placement failure. The user then reproduced video on Home: `host=0`, `failed-placement=1`,
+content eligibility still zero. The profile now initializes, but placement returns the generic
+`Spotify reclaimed source geometry during layout` message. Because restoration runs immediately,
+the later tree contains natural sizes and cannot distinguish the failed condition.
+
+r8 records the exact lease failure before restoration: surface hierarchy, aspect-constraint state,
+measured source/card/media/video sizes, and changed placement/media constraints. It adds no relaxation
+of the fitting rules and is diagnostic, not a claimed video fix. The regression asserts that a replaced
+aspect constraint retains its specific failure reason after restoration. Physical animation status
+is still unverified.

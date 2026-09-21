@@ -93,7 +93,8 @@ static BOOL usableRect(CGRect rect) {
         fabs(source.bounds.size.height - bounds.size.height) <= 0.5 &&
         fabs(source.center.x - center.x) <= 0.5 && fabs(source.center.y - center.y) <= 0.5;
     if (retained) { _appliedBounds = source.bounds; _appliedCenter = source.center; }
-    if (!retained) _rejectionReason = @"Spotify reclaimed source geometry during layout";
+    if (!constraintPlacement) _rejectionReason = [NSString stringWithFormat:@"constraint lease: %@", _constraints.rejectionReason ?: @"unavailable"];
+    else if (!retained) _rejectionReason = [NSString stringWithFormat:@"source geometry changed: bounds=%@ expected=%@ center=%@ expected=%@", NSStringFromCGRect(source.bounds), NSStringFromCGRect(bounds), NSStringFromCGPoint(source.center), NSStringFromCGPoint(center)];
     if (_tracksCard) {
         CGRect actual = [_cardView convertRect:_cardView.bounds toView:host];
         BOOL cardFits = fabs(actual.origin.x - rect.origin.x) <= 0.5 && fabs(actual.origin.y - rect.origin.y) <= 0.5 &&

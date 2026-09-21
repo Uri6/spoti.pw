@@ -162,6 +162,8 @@
     NSLayoutConstraint *replacement = [self.fixture.videoSurface.widthAnchor constraintEqualToAnchor:self.fixture.videoSurface.heightAnchor multiplier:16.0/9];
     replacement.active = YES;
     XCTAssertFalse(self.layout.ownsCurrentGeometry);
+    XCTAssertFalse([self place:260]);
+    XCTAssertTrue([self.layout.rejectionReason containsString:@"video aspect changed"]);
     [self.layout restore];
     XCTAssertFalse(self.fixture.videoAspect.active);
     XCTAssertTrue(replacement.active);

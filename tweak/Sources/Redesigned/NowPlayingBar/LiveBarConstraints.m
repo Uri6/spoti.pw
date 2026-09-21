@@ -133,30 +133,36 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
 }
 - (BOOL)ownsConstraints {
     if (!_active || !_source || _source.superview != _parent || _card.superview.superview != _source ||
-        ![_art isDescendantOfView:_content] || ![_content isDescendantOfView:_card]) return NO;
+        ![_art isDescendantOfView:_content] || ![_content isDescendantOfView:_card]) return [self reject:@"source/card/media hierarchy changed"];
     if (_videoAspect) {
-        if (!_videoSurface || !_videoView || _videoSurface.superview != _videoView || _videoView.superview != _art) return NO;
-        if (!_surfaceAspect.active || _surfaceAspect.constant != 0 || _surfaceAspect.priority != UILayoutPriorityRequired) return NO;
+        if (!_videoSurface || !_videoView || _videoSurface.superview != _videoView || _videoView.superview != _art) return [self reject:@"video surface hierarchy changed"];
+        if (!_surfaceAspect.active || _surfaceAspect.constant != 0 || _surfaceAspect.priority != UILayoutPriorityRequired)
+            return [self reject:[NSString stringWithFormat:@"video aspect changed: active=%d constant=%.3f priority=%.0f", _surfaceAspect.active, _surfaceAspect.constant, _surfaceAspect.priority]];
         CGFloat height = _videoSurface.bounds.size.height;
         if (height <= 0 || fabs(height - _card.bounds.size.height) > 0.5 ||
-            fabs(_videoSurface.bounds.size.width / height - _videoAspect) > 0.01) return NO;
+            fabs(_videoSurface.bounds.size.width / height - _videoAspect) > 0.01)
+            return [self reject:[NSString stringWithFormat:@"video dimensions: source=%@ card=%@ media=%@ controller=%@ surface=%@ aspect=%.6f", NSStringFromCGSize(_source.bounds.size), NSStringFromCGSize(_card.bounds.size), NSStringFromCGSize(_art.bounds.size), NSStringFromCGSize(_videoView.bounds.size), NSStringFromCGSize(_videoSurface.bounds.size), _videoAspect]];
     }
-    for (NSLayoutConstraint *c in _released) if (c.active) return NO;
+    for (NSLayoutConstraint *c in _released) if (c.active) return [self reject:[NSString stringWithFormat:@"released constraint reactivated: attribute=%ld", (long)c.firstAttribute]];
     for (NSUInteger i = 0; i < _placement.count; i++) {
         NSLayoutConstraint *c = _placement[i];
-        if (!equality(c) || c.constant != _positions[i].doubleValue) return NO;
+        if (!equality(c) || c.constant != _positions[i].doubleValue)
+            return [self reject:[NSString stringWithFormat:@"placement constraint changed: index=%lu active=%d actual=%.3f expected=%.3f", (unsigned long)i, c.active, c.constant, _positions[i].doubleValue]];
     }
     for (NSUInteger i = 0; i < _edited.count; i++) {
         NSLayoutConstraint *c = _edited[i];
-        if (!equality(c) || c.constant != _written[i].doubleValue) return NO;
+        if (!equality(c) || c.constant != _written[i].doubleValue)
+            return [self reject:[NSString stringWithFormat:@"media constraint changed: index=%lu active=%d actual=%.3f expected=%.3f", (unsigned long)i, c.active, c.constant, _written[i].doubleValue]];
     }
     return YES;
 }
 - (BOOL)applyFrame:(CGRect)frame cardHeight:(CGFloat)height {
-    if (!_source || _source.superview != _parent || (_active && !self.ownsConstraints)) return NO;
+    _rejectionReason = nil;
+    if (!_source || _source.superview != _parent) return [self reject:@"source parent changed before placement"];
+    if (_active && !self.ownsConstraints) return NO;
     if (!_active) {
-        for (NSLayoutConstraint *c in _released) if (!c.active) return NO;
-        for (NSUInteger i = 0; i < _edited.count; i++) if (!equality(_edited[i]) || _edited[i].constant != _original[i].doubleValue) return NO;
+        for (NSLayoutConstraint *c in _released) if (!c.active) return [self reject:@"original constraint deactivated before placement"];
+        for (NSUInteger i = 0; i < _edited.count; i++) if (!equality(_edited[i]) || _edited[i].constant != _original[i].doubleValue) return [self reject:@"original media constraint changed before placement"];
         [NSLayoutConstraint deactivateConstraints:_released];
         _active = YES;
     }
@@ -169,6 +175,11 @@ static BOOL edgePin(NSLayoutConstraint *c, UIView *a, UIView *b) {
     [_parent setNeedsLayout];
     [_parent layoutIfNeeded];
     return self.ownsConstraints;
+}
+- (BOOL)reject:(NSString *)reason {
+    // Capture the failing state before restoration removes the evidence. No media text or IDs.
+    _rejectionReason = [reason copy];
+    return NO;
 }
 - (void)restore {
     if (!_active) return;
