@@ -1,0 +1,241 @@
+// Deterministic graph-control tests for the production pipeline. The Core Audio boundary is mocked;
+// harness/speed, harness/jamesdsp/sim and harness/haptics/sim cover real RemoteIO rendering.
+#import <Foundation/Foundation.h>
+#import <AudioToolbox/AudioToolbox.h>
+#import <assert.h>
+#import <pthread.h>
+#import <stdatomic.h>
+#import <unistd.h>
+
+#if TARGET_OS_OSX
+#define kAudioUnitSubType_RemoteIO 'rioc'
+#endif
+
+typedef struct {
+    bool output, disposed;
+    UInt32 limit;
+    AudioStreamBasicDescription format;
+    AURenderCallbackStruct callback;
+    AudioUnitConnection connection;
+    unsigned renders;
+    UInt32 lastBus, frames;
+    double lastTime;
+} Unit;
+static AudioUnit unit(Unit *value) { return (AudioUnit)value; }
+static Unit *mock(AudioUnit value) { return (Unit *)value; }
+static atomic_bool blockRender, renderEntered, releaseRender;
+static OSStatus renderError;
+static bool renderSilence, refuseCallback;
+static bool reentrantChange;
+static OSStatus (*reboundSet)(AudioUnit, AudioUnitPropertyID, AudioUnitScope, AudioUnitElement, const void *, UInt32);
+
+AudioComponent AudioComponentInstanceGetComponent(AudioComponentInstance instance) { return (AudioComponent)instance; }
+OSStatus AudioComponentGetDescription(AudioComponent component, AudioComponentDescription *description) {
+    *description = (AudioComponentDescription){mock((AudioUnit)component)->output ? kAudioUnitType_Output : kAudioUnitType_Mixer,
+        kAudioUnitSubType_RemoteIO, kAudioUnitManufacturer_Apple, 0, 0};
+    return noErr;
+}
+OSStatus AudioUnitGetProperty(AudioUnit value, AudioUnitPropertyID property, AudioUnitScope scope, AudioUnitElement element,
+                             void *data, UInt32 *size) {
+    if (property == kAudioUnitProperty_StreamFormat) memcpy(data, &mock(value)->format, *size);
+    else if (property == kAudioUnitProperty_MaximumFramesPerSlice) *(UInt32 *)data = mock(value)->limit;
+    else return kAudioUnitErr_InvalidProperty;
+    return noErr;
+}
+OSStatus AudioUnitRender(AudioUnit value, AudioUnitRenderActionFlags *flags, const AudioTimeStamp *time,
+                        UInt32 bus, UInt32 frames, AudioBufferList *data) {
+    Unit *u = mock(value);
+    assert(!u->disposed && frames <= u->limit);
+    if (reentrantChange) {
+        UInt32 limit = 512;
+        assert(reboundSet(value, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
+                          &limit, sizeof limit) == kAudioUnitErr_CannotDoInCurrentContext);
+        reentrantChange = false;
+    }
+    if (atomic_load(&blockRender)) {
+        atomic_store(&renderEntered, true);
+        while (!atomic_load(&releaseRender)) usleep(100);
+    }
+    u->renders++; u->lastBus = bus; u->lastTime = time->mSampleTime; u->frames += frames;
+    if (renderError) return renderError;
+    if (renderSilence) { *flags |= kAudioUnitRenderAction_OutputIsSilence; return noErr; }
+    for (UInt32 b = 0; b < data->mNumberBuffers; b++)
+        for (UInt32 n = 0; n < frames; n++) ((float *)data->mBuffers[b].mData)[n] = .25f;
+    return noErr;
+}
+OSStatus AudioUnitAddRenderNotify(AudioUnit u, AURenderCallback callback, void *context) { return noErr; }
+OSStatus AudioUnitRemoveRenderNotify(AudioUnit u, AURenderCallback callback, void *context) { return noErr; }
+OSStatus AudioUnitAddPropertyListener(AudioUnit u, AudioUnitPropertyID property, AudioUnitPropertyListenerProc listener, void *context) { return noErr; }
+OSStatus AudioUnitRemovePropertyListenerWithUserData(AudioUnit u, AudioUnitPropertyID property, AudioUnitPropertyListenerProc listener, void *context) { return noErr; }
+
+static OSStatus mockSet(AudioUnit value, AudioUnitPropertyID property, AudioUnitScope scope, AudioUnitElement element,
+                        const void *data, UInt32 size) {
+    if (property == kAudioUnitProperty_SetRenderCallback) {
+        if (refuseCallback && ((const AURenderCallbackStruct *)data)->inputProc) return kAudioUnitErr_InvalidProperty;
+        mock(value)->callback = *(const AURenderCallbackStruct *)data;
+    } else if (property == kAudioUnitProperty_MakeConnection) mock(value)->connection = *(const AudioUnitConnection *)data;
+    else if (property == kAudioUnitProperty_MaximumFramesPerSlice) mock(value)->limit = *(const UInt32 *)data;
+    return noErr;
+}
+static OSStatus mockStart(AudioUnit value) { return noErr; }
+static OSStatus mockDispose(AudioComponentInstance value) { mock(value)->disposed = true; return noErr; }
+BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
+    if (!strcmp(symbol, "AudioUnitSetProperty")) { *original = mockSet; reboundSet = replacement; }
+    else if (!strcmp(symbol, "AudioOutputUnitStart")) *original = mockStart;
+    else if (!strcmp(symbol, "AudioComponentInstanceDispose")) *original = mockDispose;
+    else return NO;
+    return YES;
+}
+
+#include "Shared/Audio/SGAudioPipeline.x"
+#include "Shared/Sing/SGSingAudio.h"
+
+static unsigned stageCalls, stageSequence;
+static OSStatus speed(void *c, AudioUnitRenderActionFlags *f, const AudioTimeStamp *t, UInt32 b, UInt32 n, AudioBufferList *d) {
+    stageCalls++; stageSequence = stageSequence * 10 + 1; ((float *)d->mBuffers[0].mData)[0] += 1; return noErr;
+}
+static OSStatus effects(void *c, AudioUnitRenderActionFlags *f, const AudioTimeStamp *t, UInt32 b, UInt32 n, AudioBufferList *d) {
+    stageCalls++; stageSequence = stageSequence * 10 + 2; ((float *)d->mBuffers[0].mData)[0] *= 2; return noErr;
+}
+static OSStatus haptics(void *c, AudioUnitRenderActionFlags *f, const AudioTimeStamp *t, UInt32 b, UInt32 n, AudioBufferList *d) {
+    stageCalls++; stageSequence = stageSequence * 10 + 3; assert(((float *)d->mBuffers[0].mData)[0] == 2.5f); return noErr;
+}
+static void connect(Unit *source, Unit *output, UInt32 bus) {
+    AudioUnitConnection connection = {unit(source), bus, 0};
+    assert(setProperty(unit(output), kAudioUnitProperty_MakeConnection, kAudioUnitScope_Input, 0, &connection, sizeof connection) == noErr);
+}
+static float pcm[2][1024];
+static struct { AudioBufferList list; AudioBuffer more; } buffers;
+static OSStatus render(Unit *output, UInt32 frames) {
+    buffers.list.mNumberBuffers = 2;
+    for (unsigned i = 0; i < 2; i++) buffers.list.mBuffers[i] = (AudioBuffer){1, frames * sizeof(float), pcm[i]};
+    AudioUnitRenderActionFlags flags = 0;
+    return feed(unit(output), &flags, NULL, 0, frames, &buffers.list);
+}
+static bool handledError(UInt32 frames, AudioBufferList *data, OSStatus *status) {
+    *status = SGAudioPipelinePull(frames, data, NULL);
+    return true;
+}
+static OSStatus separate(void *context, UInt32 frames, AudioBufferList *data, const AudioTimeStamp *time) {
+    assert(context == &stageCalls);
+    assert(!SGAudioPipelineSetSourceProcessor(NULL, NULL)); // no graph waits from the render thread
+    OSStatus error = SGAudioPipelinePullOriginal(frames, data, time);
+    if (!error) for (UInt32 b = 0; b < data->mNumberBuffers; b++)
+        for (UInt32 n = 0; n < frames; n++) ((float *)data->mBuffers[b].mData)[n] *= .5f;
+    return error;
+}
+static void *renderThread(void *context) { assert(render(context, 128) == noErr); return NULL; }
+static void *disposeThread(void *context) { assert(dispose(unit(context)) == noErr); return NULL; }
+
+int main(void) {
+    @autoreleasepool {
+        static const SGAudioProcessor a = {NULL, speed}, b = {NULL, effects}, c = {NULL, haptics};
+        assert(SGAudioPipelineRegister(SGAudioStageHaptics, &c));
+        assert(SGAudioPipelineRegister(SGAudioStageSpeedPitch, &a));
+        assert(SGAudioPipelineRegister(SGAudioStageJamesDSP, &b));
+        AudioStreamBasicDescription format = {44100, kAudioFormatLinearPCM,
+            kAudioFormatFlagsNativeFloatPacked | kAudioFormatFlagIsNonInterleaved, 4, 1, 4, 2, 32, 0};
+        Unit source = {.format = format, .limit = 256}, output = {.output = true, .format = format, .limit = 1024};
+        connect(&source, &output, 7);
+        assert(SGAudioPipelineTapped());
+        start(unit(&output));
+        reentrantChange = true;
+        assert(render(&output, 700) == noErr && source.renders == 3 && source.frames == 700 && source.lastBus == 7 && source.lastTime == 512);
+        assert(render(&output, 128) == noErr && source.lastTime == 700);
+        AudioUnitRenderActionFlags flags = kAudioUnitRenderAction_PostRender;
+        rendered(unit(&output), &flags, NULL, 0, 128, &buffers.list);
+        assert(stageSequence == 123 && stageCalls == 3);
+        flags |= kAudioUnitRenderAction_PostRenderError;
+        rendered(unit(&output), &flags, NULL, 0, 128, &buffers.list);
+        assert(stageCalls == 3);
+        renderSilence = true;
+        assert(render(&output, 128) == noErr && pcm[0][0] == 0);
+        renderSilence = false;
+        assert(SGAudioPipelineSetSourceProcessor(separate, &stageCalls));
+        assert(render(&output, 128) == noErr && pcm[0][0] == .125f);
+        SGAudioPipelineSetPullProcessor(handledError); // speed/pitch also receives separated input
+        assert(render(&output, 128) == noErr && pcm[0][0] == .125f);
+        assert(SGAudioPipelineSetSourceProcessor(NULL, NULL));
+        SGSingAudio *sing = SGSingAudioCreate((SGAudioStamp){1, 2, 0, 3, 0}, 88200, 44100, 0);
+        assert(sing); SGSingAudioSetClock(sing, 12.0, 2);
+        assert(SGSingAudioAttach(sing));
+        double audible;
+        SGSingStream *stream = SGSingAudioStream(sing);
+        float input[2048];
+        static float vocal[88200];
+        SGAudioStamp packet;
+        for (unsigned i = 0; i < 100; i++) {
+            assert(render(&output, 882) == noErr && pcm[0][0] == 0);
+            assert(SGSingStreamReadInput(stream, &packet, input));
+            assert(packet.frames == 882 && packet.sourceFrame == i*882 && input[0] == .25f);
+            assert(SGSingAudioClock(2, &audible) && audible == 12.0);
+            assert(!SGSingAudioClock(9, &audible));
+        }
+        for (unsigned i = 0; i < 88200; i++) vocal[i] = .1f;
+        assert(SGSingStreamWriteVocals(stream, (SGAudioStamp){1,2,0,3,44100}, vocal));
+        for (unsigned i = 0; i < 50; i++) assert(render(&output, 882) == noErr && pcm[0][0] == 0);
+        assert(SGSingStreamWriteVocals(stream, (SGAudioStamp){1,2,44100,3,44100}, vocal));
+        assert(render(&output, 882) == noErr && fabsf(pcm[0][0] - .154f) < 1e-6); // 20% perceptual vocal gain
+        assert(SGSingAudioClock(2, &audible) && fabs(audible - 12.02) < 1e-6);
+        SGSingStreamBypass(stream);
+        for (unsigned i = 0; i < 160; i++) {
+            assert(render(&output, 882) == noErr);
+            if (i > 6) assert(pcm[0][0] == .25f);
+        }
+        assert(SGSingStreamState(stream) == SGSingTimelineIdle);
+        assert(SGSingAudioClock(2, &audible) && fabs(audible - 15.22) < 1e-6);
+        SGSingAudioInvalidate();
+        unsigned stalePulls = source.renders;
+        uint64_t staleFrames = source.frames;
+        assert(render(&output, 882) == noErr && pcm[0][0] == .25f && source.renders > stalePulls);
+        assert(source.frames == staleFrames + 882); // new original source continues during the handoff
+        assert(!SGSingAudioClock(2, &audible));
+        SGSingAudioDetach(sing);
+        SGSingAudioDestroy(sing);
+        SGAudioPipelineSetPullProcessor(handledError);
+        renderError = -123;
+        unsigned before = source.renders;
+        assert(render(&output, 128) == -123 && source.renders == before + 1);
+        renderError = 0;
+        SGAudioPipelineSetPullProcessor(NULL);
+        assert(SGAudioPipelinePull(128, &buffers.list, NULL) == kAudioUnitErr_NoConnection);
+        Unit another = {.output = true, .format = format, .limit = 1024};
+        start(unit(&another));
+        assert(!SGAudioPipelineTapped());
+        before = source.renders;
+        assert(render(&output, 128) == noErr && source.renders == before && pcm[0][0] == 0);
+        connect(&source, &output, 3);
+        AURenderCallbackStruct own = {NULL, NULL};
+        setProperty(unit(&output), kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &own, sizeof own);
+        assert(!SGAudioPipelineTapped());
+        connect(&source, &output, 3);
+        source.format.mFormatFlags = 0;
+        connect(&source, &output, 4);
+        assert(!SGAudioPipelineTapped() && output.callback.inputProc == NULL && output.connection.sourceOutputNumber == 4);
+        source.format = format;
+        refuseCallback = true;
+        connect(&source, &output, 5);
+        assert(!SGAudioPipelineTapped() && output.callback.inputProc == NULL && output.connection.sourceOutputNumber == 5);
+        refuseCallback = false;
+        connect(&source, &output, 6);
+        output.format.mSampleRate = 48000;
+        start(unit(&output));
+        assert(!SGAudioPipelineTapped() && output.callback.inputProc == NULL);
+        output.format = format;
+        connect(&source, &output, 6);
+        atomic_store(&blockRender, true);
+        pthread_t reader, disposer;
+        pthread_create(&reader, NULL, renderThread, &output);
+        while (!atomic_load(&renderEntered)) usleep(100);
+        pthread_create(&disposer, NULL, disposeThread, &source);
+        while (!(atomic_load(&gate) & changing)) usleep(100);
+        assert(!source.disposed);
+        atomic_store(&releaseRender, true);
+        pthread_join(reader, NULL); pthread_join(disposer, NULL);
+        assert(source.disposed && !SGAudioPipelineTapped());
+        assert(render(&output, 128) == noErr && pcm[0][0] == 0);
+        dispose(unit(&output));
+        assert(atomic_load(&outputUnit) == NULL);
+        puts("audio pipeline: ordering, chunking, errors, replacement, formats and concurrent disposal passed");
+    }
+}
