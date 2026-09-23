@@ -25,7 +25,7 @@
 #import <os/lock.h>
 #import <stdatomic.h>
 #import "Core/SGCore.h"
-#import "Core/SGRebind.h"
+#import "Shared/Audio/SGAudioPipeline.h"
 #import "JamesDSP.h"
 #import "JamesDSPEngine.h"
 #import "SGDSPEngine.h"
@@ -184,12 +184,6 @@ static NSString *fourCC(UInt32 code) {
     return @(text);
 }
 
-static BOOL isRemoteIO(AudioUnit unit) {
-    AudioComponentDescription description = {0};
-    if (!unit || AudioComponentGetDescription(AudioComponentInstanceGetComponent(unit), &description) != noErr) return NO;
-    return description.componentType == kAudioUnitType_Output && description.componentSubType == kAudioUnitSubType_RemoteIO;
-}
-
 static NSString *formatText(AudioStreamBasicDescription format) {
     if (format.mFormatID != kAudioFormatLinearPCM) return [NSString stringWithFormat:@"'%@'", fourCC(format.mFormatID)];
     return [NSString stringWithFormat:@"%.0f Hz, %u channels, %u-bit %@%@", format.mSampleRate, (unsigned)format.mChannelsPerFrame,
@@ -236,28 +230,11 @@ static BOOL readFormat(AudioUnit unit) {
     return YES;
 }
 
-// The hardware's format changing under a running unit (a route to a device at another rate).
-static void formatChanged(void *refCon, AudioUnit unit, AudioUnitPropertyID property, AudioUnitScope scope, AudioUnitElement element) {
-    if (property == kAudioUnitProperty_StreamFormat && scope == kAudioUnitScope_Output && element == 0) readFormat(unit);
-}
-
-static void listenTo(AudioUnit unit) {
-    AudioUnitRemoveRenderNotify(unit, rendered, NULL);
-    AudioUnitRemovePropertyListenerWithUserData(unit, kAudioUnitProperty_StreamFormat, formatChanged, NULL);
-    AudioUnitAddPropertyListener(unit, kAudioUnitProperty_StreamFormat, formatChanged, NULL);
+// Called by the central pipeline at output start or format change, off the render thread.
+static void prepareOutput(AudioUnit unit) {
     if (!readFormat(unit)) return;
-    // The sound held from before the output stopped would play first; the stream starts over instead.
     SGDSPEngine *engine = atomic_load(&sg_engine);
     if (engine) SGDSPEngineRestart(engine);
-    OSStatus status = AudioUnitAddRenderNotify(unit, rendered, NULL);
-    if (status != noErr) SGLog(@"jamesdsp: the render notify could not be added (%d)", (int)status);
-}
-
-static OSStatus (*sg_startOutput)(AudioUnit unit);
-
-static OSStatus startOutput(AudioUnit unit) {
-    if (isRemoteIO(unit)) listenTo(unit);
-    return sg_startOutput(unit);
 }
 
 #pragma mark - errors
@@ -579,7 +556,7 @@ NSString *SGDSPStatus(void) {
     if (!SGDSPSwitch(SGKeyDSP)) return @"Off";
     if (atomic_load(&sg_outputState) == SGOutputUnsupported) return @"Spotify's output is in a format the engine does not take";
     SGDSPEngine *engine = atomic_load(&sg_engine);
-    if (!sg_startOutput) return @"Unavailable: Spotify's output could not be reached";
+    if (!SGAudioPipelineAvailable()) return @"Unavailable: Spotify's output could not be reached";
     if (!engine || !atomic_load(&sg_running)) return @"Waiting for Spotify to play";
     double rate = SGDSPEngineSampleRate(engine);
     double load = SGDSPEngineReadStats(engine, false).load;
@@ -602,10 +579,7 @@ void SGDSPCompanderResponse(NSArray<NSNumber *> *gains, NSInteger count, double 
 }
 
 %ctor {
-    if (!SGRebindImport("AudioOutputUnitStart", startOutput, (void **)&sg_startOutput) || !sg_startOutput) {
-        sg_startOutput = NULL;
-        SGLog(@"jamesdsp: Spotify does not import AudioOutputUnitStart, the effects cannot reach its sound");
-        return;
-    }
+    static const SGAudioProcessor processor = {prepareOutput, rendered};
+    if (!SGAudioPipelineRegister(SGAudioStageJamesDSP, &processor)) return;
     SGLog(@"jamesdsp: listening for Spotify's output unit (%@)", SGDSPSwitch(SGKeyDSP) ? @"on" : @"off");
 }

@@ -13,10 +13,11 @@ make -s -C "$VENDOR" JDSP_PLATFORM=sim -j8
 rm -rf "$OUT"
 mkdir -p "$OUT/gen" "$OUT/JamesDSPHarness.app"
 "$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/JamesDSP/JamesDSP.x" > "$OUT/gen/JamesDSP.m"
+"$THEOS/bin/logos.pl" -c generator=internal "$SRC/Shared/Audio/SGAudioPipeline.x" > "$OUT/gen/SGAudioPipeline.m"
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O1 -isysroot "$SDK" -Wno-deprecated-declarations \
     -I"$SRC" -I"$SRC/Shared/JamesDSP" -isystem "$VENDOR/subtree/Main/libjamesdsp/jni/jamesdsp/jdsp" -isystem "$VENDOR" \
-    sim/main.m "$OUT/gen/JamesDSP.m" "$SRC/Shared/JamesDSP/JamesDSPSettings.m" "$SRC/Shared/JamesDSP/JamesDSPFiles.m" \
+    sim/main.m "$OUT"/gen/*.m "$SRC/Shared/JamesDSP/JamesDSPSettings.m" "$SRC/Shared/JamesDSP/JamesDSPFiles.m" \
     "$SRC/Shared/JamesDSP/SGDSPEngine.m" "$SRC/Core/SGRebind.m" "$SRC/Core/SGLog.m" "$SRC/Core/SGPrefs.m" \
     "$VENDOR/build/sim/libjamesdsp.a" \
     -framework UIKit -framework AudioToolbox -framework AVFoundation -framework Foundation \
