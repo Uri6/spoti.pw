@@ -7,12 +7,22 @@
 
 // Observes touch-down without delaying ordinary controls. Only a gesture that starts in immersive
 // mode is recognized/cancelled, so its first tap cannot reach a lyric's seek recognizer underneath.
-@interface SGRLyricsTouch : UIGestureRecognizer
+@interface SGRLyricsTouch : UIGestureRecognizer <UIGestureRecognizerDelegate>
 @property (nonatomic, weak) SGRLyricsImmersiveController *owner;
 @end
 @implementation SGRLyricsTouch {
     NSMutableSet<UITouch *> *_touches;
     BOOL _consumes;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldReceiveTouch:(UITouch *)touch {
+    // A deliberately visible control handles its own first gesture. Revealing the player on
+    // touch-down would move Sing's microphone away before its button or pan can act.
+    if (self.owner.immersive) {
+        for (UIView *view = touch.view; view && view != self.view; view = view.superview) {
+            if ([view isKindOfClass:UIControl.class]) return NO;
+        }
+    }
+    return YES;
 }
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
     if (!_touches.count) {
@@ -95,6 +105,7 @@ SGRLyricsImmersiveController *SGRLyricsImmersiveOwner(UIView *view) {
     _chrome = saved;
     _touch = [[SGRLyricsTouch alloc] initWithTarget:nil action:nil];
     _touch.owner = self;
+    _touch.delegate = _touch;
     _touch.delaysTouchesBegan = NO;
     _touch.delaysTouchesEnded = NO;
     [page addGestureRecognizer:_touch];
@@ -188,7 +199,9 @@ SGRLyricsImmersiveController *SGRLyricsImmersiveOwner(UIView *view) {
     // A menu or route picker owned by the page suspends hiding until its dismissal.
     UIViewController *vc = nil;
     for (UIResponder *r = _page; r; r = r.nextResponder) if ([r isKindOfClass:UIViewController.class]) { vc = (id)r; break; }
-    BOOL busy = [self busy:_page] || vc.presentedViewController != nil;
+    // Persistent controls handle their gesture before revealing the player. Polling their
+    // tracking state while immersive would move them away from the finger mid-tap.
+    BOOL busy = (!_state.immersive && [self busy:_page]) || vc.presentedViewController != nil;
     if (busy || (_state.holds & SGRImmersiveControl)) [self hold:SGRImmersiveControl active:busy];
     SGRImmersiveAdvance(&_state, CACurrentMediaTime());
     [self draw:YES];

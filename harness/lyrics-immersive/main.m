@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import "Redesigned/Lyrics/SGRKaraokeView.h"
+#import "Redesigned/Lyrics/SGRSingControl.h"
 #import "Redesigned/Lyrics/SGRLyricsImmersive.h"
 
 NSArray<SGKaraokeLine *> *SGTTMLLines(NSString *xml);
@@ -45,6 +46,8 @@ static void check(BOOL success, NSString *description) {
     CGRect _normal;
     BOOL _testsStarted, _expanded;
     UILabel *_probe;
+    UILabel *_singProbe;
+    CGFloat _maximumCapsuleHeight, _minimumCapsuleOffset, _maximumCapsuleOffset;
     NSTimer *_probeTimer;
 }
 - (void)viewDidLoad {
@@ -53,7 +56,7 @@ static void check(BOOL success, NSString *description) {
     self.view.backgroundColor = [UIColor colorWithRed:0.18 green:0.07 blue:0.16 alpha:1];
     _header = [UIView new]; _footer = [UIView new]; _host = [UIView new];
     [self.view addSubview:_header]; [self.view addSubview:_footer]; [self.view addSubview:_host];
-    UILabel *title = [UILabel new]; title.text = @"Immersive lyrics\nPlayer controls"; title.numberOfLines = 2;
+    UILabel *title = [UILabel new]; title.text = @"Sing along\nImmersive lyrics"; title.numberOfLines = 2;
     title.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
     title.textColor = UIColor.whiteColor; title.frame = CGRectMake(22, 8, 250, 65); [_header addSubview:title];
     UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem]; [close setTitle:@"Close" forState:UIControlStateNormal];
@@ -74,6 +77,11 @@ static void check(BOOL success, NSString *description) {
         [strong.view layoutIfNeeded];
     };
     NSUserDefaults *prefs = NSUserDefaults.standardUserDefaults;
+    // Reproduce the enclosing player's competing dismissal pan. Sing must keep a drag that
+    // starts inside its capsule; a plain UIControl alone gets cancelled by this recognizer.
+    if ([prefs boolForKey:@"sing-ui"]) {
+        [self.view addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(playerPanned:)]];
+    }
     NSString *song = [prefs stringForKey:@"song"] ?: @"both";
     NSString *path = [NSBundle.mainBundle pathForResource:song ofType:@"ttml"];
     NSString *text = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
@@ -87,10 +95,17 @@ static void check(BOOL success, NSString *description) {
         _probe.font = [UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightRegular];
         _probe.textColor = UIColor.whiteColor;
         [self.view addSubview:_probe];
+        if ([prefs boolForKey:@"sing-ui"]) {
+            _singProbe = [UILabel new];
+            _singProbe.accessibilityIdentifier = @"sing-test-geometry";
+            _singProbe.font = _probe.font; _singProbe.textColor = UIColor.whiteColor;
+            [self.view addSubview:_singProbe];
+        }
         __weak typeof(self) weak = self;
         _probeTimer = [NSTimer scheduledTimerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) { [weak updateProbe]; }];
     }
 }
+- (void)playerPanned:(UIPanGestureRecognizer *)gesture { }
 - (void)dealloc { [_probeTimer invalidate]; }
 - (void)updateProbe {
     // Test-only observation; events still go through UIKit and the production recognizers.
@@ -109,6 +124,21 @@ static void check(BOOL success, NSString *description) {
     _probe.text = [NSString stringWithFormat:@"%@|%lu|%.1f|%.1f|%lu|%.3f", _immersive.immersive ? @"immersive" : @"visible",
                    (unsigned long)SGHarnessSeekCount(), target.x, target.y, (unsigned long)sg_testHiddenDuringTouch,
                    sg_testTouchEnded > sg_testTouchStarted ? sg_testTouchEnded - sg_testTouchStarted : 0];
+    if (_singProbe) {
+        for (UIView *view in self.view.subviews) {
+            if (![NSStringFromClass(view.class) isEqualToString:@"SGRSingControl"]) continue;
+            UIView *panel = [view valueForKey:@"panel"];
+            BOOL expanded = [[view valueForKey:@"expanded"] boolValue];
+            CGFloat height = panel.bounds.size.height, offset = panel.center.y - 124;
+            if (expanded && sg_testTouching) {
+                _maximumCapsuleHeight = MAX(_maximumCapsuleHeight, height);
+                _minimumCapsuleOffset = MIN(_minimumCapsuleOffset, offset);
+                _maximumCapsuleOffset = MAX(_maximumCapsuleOffset, offset);
+            }
+            _singProbe.text = [NSString stringWithFormat:@"%.1f|%.1f|%.1f|%.1f", height,
+                              _maximumCapsuleHeight, _minimumCapsuleOffset, _maximumCapsuleOffset];
+        }
+    }
 }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
@@ -121,7 +151,10 @@ static void check(BOOL success, NSString *description) {
     if (_expanded) _host.frame = CGRectMake(_normal.origin.x, _normal.origin.y, _normal.size.width,
                                             size.height - self.view.safeAreaInsets.bottom - _normal.origin.y);
     _lyrics.frame = _host.bounds;
+    __weak SGRLyricsImmersiveController *weak = _immersive;
+    SGRSingControlForPage(self.view, _host, _immersive.immersive, ^(BOOL held) { [weak hold:SGRImmersiveSing active:held]; });
     _probe.frame = CGRectMake(8, top, size.width - 16, 14);
+    _singProbe.frame = CGRectMake(8, top + 14, size.width - 16, 14);
     if (_probe) [self.view bringSubviewToFront:_probe];
 }
 - (void)viewDidAppear:(BOOL)animated {

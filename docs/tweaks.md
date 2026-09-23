@@ -101,15 +101,22 @@ Shared:
                   source is on
     LockScreenLyrics/ the line being sung in the system's now playing
     Navigation/   the page transition fix (PageTransition.x) and opening a spotify: link (Links.x)
+    Audio/        the mixer connection and RemoteIO render notify owned once (SGAudioPipeline.x): fixed processor slots
+                  run speed and pitch, JamesDSP, then music haptics. Graph changes and disposal exclude active pulls;
+                  the render thread never waits for them. Unsupported formats retain Spotify's connection. The PCM
+                  packet queue is bounded and generation-stamped. Boundary tests are in harness/audio/ and harness/sing/
+    Sing/         the local Core AI separator, source-domain audio adapter, worker and player lifecycle. The audible
+                  clock follows emitted source samples while delayed audio drains. Redesigned/Lyrics owns the
+                  Now Playing microphone control; the model is an optional local Sing.bundle (harness/sing/)
     Player/       the player's open and close announced (PlayerEvents.x), what the player is doing read through
                   one hook for every feature that wants it (PlayerState.x), the lock screen widget's flags, and in the
                   more button's menu Speed and pitch: both done to Spotify's audio by Apple's time and pitch unit, put
-                  between its mixer and its RemoteIO unit by taking over the connection Spotify makes between them
+                  between its mixer and its RemoteIO unit through Audio/SGAudioPipeline's connection
                   (SpeedPitchMenu.x, SpeedPitch.x, SGTimePitch.m). The block goes into Spotify's own context menu sheet
                   and is drawn from its own measures, not the Kit's, so it sits there under either look. Tested on the
                   Mac against harness/pitch/ and in the simulator against harness/speed/ and harness/menu/
-    JamesDSP/     JamesDSP's effects on Spotify's sound (JamesDSP.h has the keys and the page's calls): Spotify's import of
-                  AudioOutputUnitStart is rebound, as Music Haptics does, and a render notify on its RemoteIO unit runs
+    JamesDSP/     JamesDSP's effects on Spotify's sound (JamesDSP.h has the keys and the page's calls): Audio/SGAudioPipeline's
+                  ordered output processor runs
                   each finished buffer through SGDSPEngine.m, libjamesdsp re-blocked to 1024 frames one block late, in
                   place (JamesDSP.x). The buffers are in the unit's output format, the hardware's, not the client format
                   Spotify sets. Settings apply as they change, on a queue of its own; the file effects read their files
@@ -118,8 +125,8 @@ Shared:
     Haptics/      Vibrations (Haptics.h lists its files): a tap of UIKit's feedback generators for the player's and the now
                   playing bar's controls, the scrubber's tenths and ends, cover swipes, gestures and the lyrics page's tap to
                   seek, at the strength set for them (ControlHaptics.x, SGFeedback.m); and Music Haptics, Core Haptics
-                  playing along with the song: Spotify's import of AudioOutputUnitStart is rebound so its RemoteIO output
-                  unit gets a render notify, the samples, in the unit's output format (the hardware's), go through a drum
+                  playing along with the song: Audio/SGAudioPipeline supplies final samples after speed, pitch and JamesDSP;
+                  in the unit's output format (the hardware's), they go through a drum
                   and bass analyzer on the render thread (SGMusicAnalyzer.m, plain C), and a thread of its own schedules
                   the taps and the rumble for when the sound is heard, at their strength and leaving out what Follows
                   leaves out (MusicHaptics.x). Everything applies at once; nothing plays while Spotify is not the active
@@ -162,7 +169,7 @@ Redesigned:
                   Shared/Player's Speed and pitch, which draws in the menu it opens. The lyrics glyph opens
                   the existing lyrics overlay; after two idle seconds its bottom controls fade and the lyrics
                   extend downward, keeping the compact artwork and title. A first touch restores the controls
-                  without seeking
+                  without seeking. Sing's microphone sits at the trailing edge of this same lyrics surface
     Lyrics/       the full screen lyrics page on glass with Apple Music style lyrics over it, always on (SGRKaraokeView,
                   which the player shows in itself too, Player/PlayerLyrics.x): lines sung over each other lit together,
                   the stack moving on once the first is sung out; an instrumental break of 7 s or more held by three dots

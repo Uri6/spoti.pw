@@ -28,6 +28,8 @@
 #import "Redesigned/Kit/SGRKit.h"
 #import "Redesigned/Lyrics/SGRKaraokeView.h"
 #import "Redesigned/Lyrics/SGRLyricsImmersive.h"
+#import "Redesigned/Lyrics/SGRSingControl.h"
+#import "Shared/Sing/SGSingController.h"
 #import "Shared/Lyrics/Lyrics.h"
 #import "Player.h"
 
@@ -86,6 +88,16 @@ static void replace(void);
     [_thumb addSubview:_cover];
     _stage = [[UIView alloc] initWithFrame:CGRectZero];
     _stage.accessibilityIdentifier = @"player.lyrics.viewport";
+    UILabel *empty = [UILabel new];
+    empty.text = @"Lyrics aren't available for this song.";
+    empty.textColor = SGRSecondary();
+    empty.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    empty.adjustsFontForContentSizeCategory = YES;
+    empty.textAlignment = NSTextAlignmentCenter;
+    empty.numberOfLines = 0;
+    empty.frame = _stage.bounds;
+    empty.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [_stage addSubview:empty];
     [self addSubview:_stage];
     [self addSubview:_thumb];
     return self;
@@ -245,7 +257,7 @@ static void placeTitleRow(SGRLyricsLayout l) {
 
 BOOL SGRPlayerLyricsAvailable(void) {
     NSString *track = SGKaraokePlayingTrack();
-    return track != nil && SGKaraokeLinesForTrack(track) != nil;
+    return track != nil && (SGKaraokeLinesForTrack(track) != nil || SGSingConfigured());
 }
 
 BOOL SGRPlayerLyricsOpen(void) {
@@ -288,6 +300,8 @@ static void prepareControls(SGRPlayerLyricsOverlay *overlay, UIView *host) {
         if (row == sg_info.viewIfLoaded || row == sg_floating.viewIfLoaded) continue;
         if (row.center.y - row.bounds.size.height / 2 >= top - 1) [overlay.immersive addChromeView:row];
     }
+    __weak SGRLyricsImmersiveController *weak = overlay.immersive;
+    SGRSingControlForPage(overlay, overlay.stage, overlay.immersive.immersive, ^(BOOL held) { [weak hold:SGRImmersiveSing active:held]; });
 }
 
 // Where the thumbnail's view has to go to land on `l.thumb`, as a transform about its own centre: the
@@ -329,6 +343,7 @@ static void setOpen(BOOL open, BOOL animated) {
     SGRPlayerLyricsOverlay *existing = objc_getAssociatedObject(host, &kOverlayKey);
     if (!open) {
         [existing.immersive setPresented:NO];
+        SGRSingControlDismiss(existing);
     }
     sg_open = open;
     SGRPlayerLyricsChanged();

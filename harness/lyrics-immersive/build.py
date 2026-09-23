@@ -16,9 +16,10 @@ theos = Path(os.environ.get("THEOS", Path.home() / "theos"))
 with generated.open("w") as output:
     subprocess.run([str(theos / "bin/logos.pl"), "-c", "generator=internal",
                     str(src / "Redesigned/Lyrics/LyricsImmersive.x")], stdout=output, check=True)
-sources = [here / "main.m", here.parent / "lyrics/stubs.m"]
+sources = [here / "main.m", here / "sing_stubs.m", here.parent / "lyrics/stubs.m"]
 sources += [generated, src / "Core/SGUIMode.m"]
 sources += [src / name for name in [
+    "Redesigned/Lyrics/SGRSingControl.m", "Redesigned/Kit/SGRGlass.m",
     "Redesigned/Lyrics/SGRLyricsImmersive.m", "Redesigned/Lyrics/SGRImmersiveState.m",
     "Redesigned/Lyrics/SGRKaraokeView.m", "Redesigned/Lyrics/LyricsText.m",
     "Shared/Lyrics/KaraokeTiming.m", "Shared/Lyrics/Protobuf.m", "Shared/LyricsSources/SGTTML.m",

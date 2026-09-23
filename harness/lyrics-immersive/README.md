@@ -2,7 +2,7 @@
 
 The same inactivity policy, UIKit controller and karaoke renderer used by Now Playing. The compact
 header remains visible while bottom controls fade and the existing lyrics viewport expands downward.
-No Spotify binary or phone is needed. The player's own layout and hooks are covered
+No Spotify binary, phone, or separator model is needed. The player's own layout and hooks are covered
 by `harness/player/` and by the actual Spotify device checks.
 
 ```sh
@@ -23,6 +23,19 @@ The XCTest runner sends actual UIKit touches: reveal-only tap, repeat tap to see
 menu presentation, scrolling, rotation and background/foreground. A test-only accessibility
 probe reports observed state and seek count; it does not drive the production controller. The
 generated Xcode project and screenshots stay in `build/ui`, with no signing-account information.
+
+Sing UI checks use the production capsule with a deterministic audio-controller boundary. They cover
+dragging the track and microphone against a competing player pan, restoring the chosen vocal level,
+cancelling preparation, restarting during drain, and keeping transition feedback visible. Slow and
+blocked preparation fixtures exercise cancellation and explanations without loading a voice model.
+The capsule collapses after three seconds without interaction, then the existing two-second lyrics
+timer hides the player controls. Active Sing keeps a small microphone visible in immersive mode;
+its first tap opens the capsule without seeking. The tests cover that sequence and hiding the
+microphone again after Sing stops.
+They also measure actual capsule bounds during upward/downward drags and after release, and
+exercise the prepared-while-paused state, including changing the vocal level before Play.
+The slider spans 20–100%; a recovery fixture checks that its selected level remains editable
+while the separator catches up and survives the return to active playback without an alert.
 
 Manual checks: let chrome disappear, then tap a lyric once (reveal only) and again (seek); drag,
 let momentum finish, and open/dismiss the translation menu. Check VoiceOver focus on controls,

@@ -9,6 +9,7 @@ enum {
     SGRImmersiveMenu = 1u << 2,
     SGRImmersiveAccessibility = 1u << 3,
     SGRImmersiveControl = 1u << 4,
+    SGRImmersiveSing = 1u << 5,
 };
 typedef struct {
     bool presented, active, immersive;
