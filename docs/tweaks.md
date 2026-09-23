@@ -159,14 +159,19 @@ Redesigned:
     NowPlayingBar/ the glass now playing bar (NowPlayingBar.x), with Spotify's device button on it hidden on request
                   (BarConnect.x, its own key and its own Now playing page, apart from the native look's)
     Player/       the redesigned full screen player (Player.h lists its files); its more button is handed to
-                  Shared/Player's Speed and pitch, which draws in the menu it opens
+                  Shared/Player's Speed and pitch, which draws in the menu it opens. The lyrics glyph opens
+                  the existing lyrics overlay; after two idle seconds its bottom controls fade and the lyrics
+                  extend downward, keeping the compact artwork and title. A first touch restores the controls
+                  without seeking
     Lyrics/       the full screen lyrics page on glass with Apple Music style lyrics over it, always on (SGRKaraokeView,
                   which the player shows in itself too, Player/PlayerLyrics.x): lines sung over each other lit together,
                   the stack moving on once the first is sung out; an instrumental break of 7 s or more held by three dots
                   that breathe and fill over its length on a Core Animation timeline laid against the song's clock; and
                   a line's pronunciation (under the words it spells) and translation, switched on from a glass button in
                   the lyrics' corner that shows only for a song that has them, in the order of sizes the Lyrics page sets
-                  (LyricsText.h). Laid out on the Mac against harness/lyrics/
+                  (LyricsText.h). SGRLyricsImmersive owns the player's idle and interaction policy; the player retains
+                  its own layout. Browsing, menus, gestures and accessibility focus hold controls visible.
+                  Laid out on the Mac against harness/lyrics/; inactivity and UIKit tests in harness/lyrics-immersive/
     Home/         Home decluttered to music on black (an allow list of its sections: shortcuts, the DJ without its heading and
                   transcript, the shelves of cards), a large title where the filter pills were with the avatar at the trailing
                   edge, the shelves' headings at the Music app's size, each shortcut tile's cover run across it blurred
