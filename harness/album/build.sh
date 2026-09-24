@@ -4,14 +4,14 @@ SRC=$(cd "$(dirname "$0")/../../tweak/Sources" && pwd)
 OUT=$(dirname "$0")/build
 rm -rf "$OUT"; mkdir -p "$OUT/gen" "$OUT/AlbumHarness.app"
 
-for f in Redesigned/Album/AlbumField.x Redesigned/Album/AlbumHeader.x Redesigned/Album/AlbumRows.x Redesigned/Album/AlbumSections.x; do
+for f in Redesigned/Album/AlbumField.x Redesigned/Album/AlbumHeader.x Redesigned/Album/AlbumRows.x Redesigned/Album/AlbumSections.x Redesigned/Playlist/PlaylistField.x; do
     name=$(basename "$f" .x)
     "$THEOS/bin/logos.pl" -c generator=internal "$SRC/$f" > "$OUT/gen/$name.m"
 done
 
 SDK=$(xcrun --sdk iphonesimulator --show-sdk-path)
 xcrun -sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator -fobjc-arc -g -O0 \
-    -I"$SRC" -I"$SRC/Redesigned/Album" -I"$OUT/gen" -isysroot "$SDK" \
+    -I"$SRC" -I"$SRC/Redesigned/Album" -I"$SRC/Redesigned/Playlist" -I"$OUT/gen" -isysroot "$SDK" \
     -Wno-deprecated-declarations \
     "$(dirname "$0")/main.m" "$(dirname "$0")/checks.m" "$(dirname "$0")/stubs.m" \
     "$OUT"/gen/*.m \

@@ -13,7 +13,7 @@ Run the behavioral checks for redesigned, native and late-loading pages:
 
     THEOS=$HOME/theos python3 test.py SIMULATOR_UDID
 
-`build.sh` runs `logos.pl -c generator=internal` over the four `.x` files and links them with the
+`build.sh` runs `logos.pl -c generator=internal` over the four album `.x` files and `PlaylistField.x`, linking them with the
 real `Core/` and `Redesigned/Kit/` sources; `stubs.m` stands in for the two hook files the harness
 does not compile (`SGRAccent.x`, `SGRRepaint.x`).
 
@@ -28,8 +28,10 @@ At 1.5 s it runs `checks.m` against the production hooks and measures the footer
 `preferredLayoutAttributesFittingAttributes:`. All 1203pt of the mock footer stay at their natural
 height, including headings, carousels and spacers. The checks cover conservative artist matching,
 late header metadata, co-artists, guest credits, Unicode, inline badges, long titles, RTL,
-repeated layout, cell reuse, non-album rows
-and footer accessibility. A failure aborts; success logs `[album-checks] PASS`.
+repeated layout, cell reuse, non-album rows and footer accessibility. They also reproduce the nested
+album-card backing and the plain UIKit playlist recommendation cell captured on device, checking
+paint cleanup after reuse/reload while preserving artwork, badges and non-base colors.
+A failure aborts; success logs `[album-checks] PASS`.
 
 `native` on the launch line starts with Redesigned UI off and checks that the same rows and footer
 remain untouched. The app uses the scene lifecycle so it also launches with the iOS 27 SDK.

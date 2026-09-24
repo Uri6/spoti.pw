@@ -3,6 +3,32 @@
 #import "Redesigned/Album/Album.h"
 #import "Redesigned/Album/AlbumArtistPolicy.h"
 
+// The recommendation heading uses UIKit's plain cell, not the playlist track-cell subclass.
+@interface _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController : UIViewController @end
+@implementation _TtC35ListUXPlatform_FreeTierPlaylistImpl17FTPViewController @end
+@interface _TtC35ListUXPlatform_FreeTierPlaylistImpl32FTPTouchCancellingCollectionView : UICollectionView @end
+@implementation _TtC35ListUXPlatform_FreeTierPlaylistImpl32FTPTouchCancellingCollectionView @end
+
+@interface SGRHeadingFixture : NSObject <UICollectionViewDataSource>
+@end
+@implementation SGRHeadingFixture
+- (NSInteger)collectionView:(UICollectionView *)list numberOfItemsInSection:(NSInteger)section { return 1; }
+- (UICollectionViewCell *)collectionView:(UICollectionView *)list cellForItemAtIndexPath:(NSIndexPath *)path {
+    UICollectionViewCell *cell = [list dequeueReusableCellWithReuseIdentifier:@"heading" forIndexPath:path];
+    for (UIView *view in cell.contentView.subviews.copy) [view removeFromSuperview];
+    UIView *element = [[UIView alloc] initWithFrame:cell.bounds];
+    [cell.contentView addSubview:element];
+    UIView *label = [[UIView alloc] initWithFrame:CGRectMake(16, 4, 358, 21)];
+    label.accessibilityIdentifier = @"Encore.Label";
+    label.layer.backgroundColor = UIColor.blackColor.CGColor;
+    UILabel *title = [[UILabel alloc] initWithFrame:label.bounds];
+    title.text = @"Localized recommendations";
+    [label addSubview:title];
+    [element addSubview:label];
+    return cell;
+}
+@end
+
 static NSUInteger checks;
 static void check(BOOL condition, NSString *message) {
     checks++;
@@ -75,6 +101,68 @@ void SGRRunAlbumChecks(UIView *page, NSArray<UICollectionViewCell *> *footer, BO
             check(!cell.contentView.hidden && !cell.accessibilityElementsHidden, @"footer remains visible and accessible");
         }
     }
+
+    // Device 2026-09-24: related releases have their own nested Element_List cells. The black is
+    // on ContentCardAlbum, not on its labels. Exercise attachment, repaint/reuse and isolation.
+    UICollectionViewCell *shelf = [[UICollectionViewCell alloc] initWithFrame:CGRectMake(0, 0, 390, 194)];
+    UICollectionViewCell *release = [[NSClassFromString(@"_TtC12Element_List18CollectionViewCell") alloc]
+        initWithFrame:CGRectMake(16, 0, 153, 194)];
+    [shelf.contentView addSubview:release];
+    UIView *card = identified(release.contentView, release.bounds, @"Components.UI.ContentCardAlbum");
+    UIView *art = identified(card, CGRectMake(0, 0, 153, 153), @"Encore.ImageView");
+    art.backgroundColor = UIColor.blackColor;
+    UIView *cardBadge = identified(card, CGRectMake(4, 4, 26, 26), @"badge");
+    cardBadge.backgroundColor = UIColor.blackColor;
+    UILabel *caption = text(identified(card, CGRectMake(0, 161, 153, 33), @"caption"), @"Album");
+    card.layer.backgroundColor = UIColor.blackColor.CGColor;
+    [release setNeedsLayout]; [release layoutIfNeeded];
+    check(CGColorGetAlpha(card.layer.backgroundColor) == 1, @"album-card paint outside album is untouched");
+    [page addSubview:shelf];
+    for (int pass = 0; pass < 3; pass++) {
+        [release prepareForReuse];
+        card.layer.backgroundColor = UIColor.blackColor.CGColor;
+        [release setNeedsLayout]; [release layoutIfNeeded];
+        check(CGColorGetAlpha(card.layer.backgroundColor) == (native ? 1 : 0), @"album card backing follows look after reuse");
+        check(CGColorGetAlpha(art.layer.backgroundColor) == 1 && CGColorGetAlpha(cardBadge.layer.backgroundColor) == 1,
+              @"artwork and badge backgrounds survive card cleanup");
+        check(card.alpha == 1 && [caption.text isEqualToString:@"Album"] && card.bounds.size.height == 194,
+              @"card content and geometry survive cleanup");
+    }
+    card.backgroundColor = [UIColor colorWithWhite:0.15 alpha:1];
+    [release setNeedsLayout]; [release layoutIfNeeded];
+    check(CGColorGetAlpha(card.layer.backgroundColor) == 1, @"non-base card color survives");
+    [shelf removeFromSuperview];
+
+    UICollectionViewFlowLayout *flow = [UICollectionViewFlowLayout new];
+    flow.itemSize = CGSizeMake(390, 33);
+    UICollectionView *recommendations = [[_TtC35ListUXPlatform_FreeTierPlaylistImpl32FTPTouchCancellingCollectionView alloc]
+        initWithFrame:CGRectMake(0, 0, 390, 100) collectionViewLayout:flow];
+    SGRHeadingFixture *fixture = [SGRHeadingFixture new];
+    recommendations.dataSource = fixture;
+    [recommendations registerClass:UICollectionViewCell.class forCellWithReuseIdentifier:@"heading"];
+    [page addSubview:recommendations];
+    for (int pass = 0; pass < 3; pass++) {
+        [recommendations reloadData];
+        [recommendations setNeedsLayout]; [recommendations layoutIfNeeded];
+        UICollectionViewCell *heading = recommendations.visibleCells.firstObject;
+        UIView *paint = heading.contentView.subviews.firstObject.subviews.firstObject;
+        check(heading.class == UICollectionViewCell.class && paint != nil, @"playlist heading uses plain visible UIKit cell");
+        CGFloat alpha = paint.layer.backgroundColor ? CGColorGetAlpha(paint.layer.backgroundColor) : 0;
+        check(alpha == (native ? 1 : 0), @"playlist heading paint follows look on reload");
+    }
+    // Spotify also mounts footer cells directly, outside the collection's data-source items.
+    UICollectionViewCell *mounted = [[UICollectionViewCell alloc] initWithFrame:CGRectMake(0, 40, 390, 33)];
+    UIView *mountedPaint = identified(mounted.contentView, CGRectMake(16, 4, 358, 21), @"Encore.Label");
+    text(mountedPaint, @"Another localized heading");
+    [recommendations addSubview:mounted];
+    check(![recommendations.visibleCells containsObject:mounted], @"mounted footer is outside managed visible cells");
+    for (int pass = 0; pass < 3; pass++) {
+        mountedPaint.layer.backgroundColor = UIColor.blackColor.CGColor;
+        [recommendations setNeedsLayout]; [recommendations layoutIfNeeded];
+        CGFloat alpha = mountedPaint.layer.backgroundColor ? CGColorGetAlpha(mountedPaint.layer.backgroundColor) : 0;
+        check(alpha == (native ? 1 : 0), @"mounted playlist footer clears retained paint after layout");
+    }
+    [recommendations removeFromSuperview];
 
     // A separate page makes metadata isolation observable without disturbing the visual fixture.
     UIView *owner = [[NSClassFromString(@"_TtC28CreativeWorkPlatform_PageKit24CreativeWorkTemplateView") alloc]

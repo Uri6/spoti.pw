@@ -16,6 +16,8 @@ Branch: `codex/album-118-119`, based on `15486e5` from `codex/sing-immersive-lyr
   titles cannot overlap the badges or menu. Mirror the arrangement for RTL. Restore presentation on reuse.
 - Restore the entire Spotify footer in its supplied order, including More by, Related Music Videos,
   You might also like, concerts and merch. Keep original links, carousels, spacer heights and copyright.
+- Clear the retained base surface on album discovery cards and plain playlist recommendation cells,
+  so captions and headings sit directly on the artwork field. Preserve artwork and badge paint.
 
 ## Design review
 
@@ -29,10 +31,13 @@ No new animation is introduced; the existing scrolling and transitions remain Sp
 ## Verification, 2026-09-24
 
 - Full arm64 Theos package build passed, including the import-layer check.
-- Simulator checks: 151 redesign, 125 native, and 151 with late header content. These exercise
+- Simulator checks: 172 redesign, 146 native, and 172 with late header content. These exercise
   the production Logos hooks and policy, including reuse, larger multiline text, RTL, page isolation,
   metadata arriving late, co-artists, guest credits, label-backed badges beside clipped subtitle containers,
   long titles, badge restoration, same-size cached-row reuse, footer self-sizing and accessibility visibility.
+  Paint checks cover nested album cards, artwork/badge preservation, page isolation, non-base colors,
+  and plain UIKit playlist recommendation cells on initial layout and repeated reloads, including
+  footer cells mounted outside the collection view data source.
 - The inherited immersive-lyrics state tests passed.
 - Installed the signed build on the connected iPhone 17 Pro. XCTest captured six positions on
   Hurry Up Tomorrow: repeated artist lines are hidden and explicit badges remain visible;
@@ -48,6 +53,10 @@ No new animation is introduced; the existing scrolling and transitions remain Sp
 - The real badge is the label-backed `Components.UI.ExplicitIcon` sibling of the subtitle.
   The fixture now models that structure; the subtitle wrapper stays concealed when Encore
   refreshes its internal label. The shipped build contains no temporary tree/trace instrumentation.
+- Background follow-up: verified transparent discovery-card captions on My Beautiful Dark Twisted
+  Fantasy and the recommendation heading on This Is Drake, before and after scrolling away and back.
+  The live hierarchy confirmed that Spotify mounts the playlist's plain footer cell directly in the
+  list without including it in `visibleCells`; cleanup now includes those mounted cells.
 
 The simulator exercises edge cases that the sampled album does not contain. This is a focused
 album-page check, not a new acceptance run for the inherited Sing audio engine.
