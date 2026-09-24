@@ -27,6 +27,8 @@ uint64_t SGSingTimelineReadyFrames(const SGSingTimeline *timeline);
 // Stereo interleaved, 44.1 kHz. Reject mismatch, gap or overflow. During recovery, late output
 // still advances the worker cursor, but only its not-yet-audible suffix is retained.
 bool SGSingTimelineCapture(SGSingTimeline *timeline, SGAudioStamp stamp, const float *original);
+// Render owner only: copy a still-retained original prefix to the worker input queue.
+uint32_t SGSingTimelineCopyOriginal(const SGSingTimeline *timeline, uint64_t sourceFrame, float *stereo, uint32_t frames);
 bool SGSingTimelineVocals(SGSingTimeline *timeline, SGAudioStamp stamp, const float *vocals);
 // Preparing emits available original PCM immediately and advances its audible clock.
 // Draining can return a prefix: pull the remaining frames directly only AFTER this prefix.

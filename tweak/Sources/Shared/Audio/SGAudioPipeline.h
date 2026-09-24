@@ -2,12 +2,13 @@
 // independent of constructor/rebinding order. All render functions are bounded C callbacks.
 #pragma once
 #import <AudioToolbox/AudioToolbox.h>
+#import "SGAudioSourceQueue.h"
 #include <stdbool.h>
 
 typedef enum {
     SGAudioStageSing,
     SGAudioStageSpeedPitch,
-    SGAudioStageJamesDSP,
+    SGAudioStageEffects,
     SGAudioStageHaptics,
     SGAudioStageCount
 } SGAudioStage;
@@ -34,6 +35,7 @@ OSStatus SGAudioPipelinePullOriginal(UInt32 frames, AudioBufferList *data, const
 // Render endpoint only: verified decoded prefix, capped at maximumFrames, before a source event.
 // Zero keeps normal pulls and lets retained original audio drain. Never an extra source consumer.
 UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames);
+SGAudioSourcePrefix SGAudioPipelineSourcePrefix(UInt32 maximumFrames, bool continuous);
 bool SGAudioPipelineSourceCanReadAhead(void); // off-render; exact supported source callback
 // Off-render only. Waits for an active callback to leave before replacing the context. After this
 // returns, the old context is no longer used by the pipeline (its worker may still own it).

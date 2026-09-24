@@ -132,7 +132,48 @@ static void failures(void) {
     assert(SGSingStreamSourceError(stream) == -42);
     SGSingStreamDestroy(stream); sourceFails = false;
 }
+static void coldPrefix(void) {
+    pulled = 0;
+    SGSingStream *s = SGSingStreamCreate((SGAudioStamp){3,9,0,1,0},window,hop,.7f);
+    for (unsigned tick = 0; tick < 800; tick++) {
+        budget = UINT32_MAX;
+        assert(!SGSingStreamRender(s,441,output,source,&pulled,rate));
+        for (unsigned n = 0; n < 441; n++) assert(output[n*2] == sampleAt(tick*441+n));
+    }
+    budget = UINT32_MAX;
+    assert(!SGSingStreamRender(s,17,output,source,&pulled,rate));
+    SGAudioStamp packet;
+    assert(SGSingStreamReadLiveInput(s,&packet,input));
+    assert(packet.sourceFrame == 800*441+17);
+    for (unsigned n = 0; n < packet.frames; n++) assert(input[n*2] == sampleAt(packet.sourceFrame+n));
+    uint64_t expected = packet.sourceFrame + packet.frames;
+    budget = UINT32_MAX;
+    assert(!SGSingStreamRender(s,4096,output,source,&pulled,rate));
+    assert(SGSingStreamReadLiveInput(s,&packet,input));
+    assert(packet.sourceFrame == expected); // only the initial expired prefix may be skipped
+    assert(SGSingStreamStopReason(s) == SGSingStopNone);
+    SGSingStreamDestroy(s);
+    // Even a very slow cold model load cannot fill the worker queue or interrupt playback.
+    pulled = 0;
+    s = SGSingStreamCreate((SGAudioStamp){4,9,0,1,0},window,hop,.7f);
+    SGSingStreamSetModelReady(s,false);
+    for (unsigned tick = 0; tick < 3000; tick++) {
+        budget = UINT32_MAX;
+        assert(!SGSingStreamRender(s,441,output,source,&pulled,rate));
+        for (unsigned n = 0; n < 441; n++) assert(output[n*2] == sampleAt(tick*441+n));
+        assert(SGSingStreamStopReason(s) == SGSingStopNone);
+        assert(!SGSingStreamReadInput(s,&packet,input));
+    }
+    SGSingStreamSetModelReady(s,true);
+    budget = UINT32_MAX;
+    assert(!SGSingStreamRender(s,441,output,source,&pulled,rate));
+    assert(SGSingStreamReadLiveInput(s,&packet,input));
+    assert(packet.sourceFrame == 3001 * 441 && packet.frames > 0);
+    for (unsigned n = 0; n < packet.frames; n++) assert(input[n*2] == sampleAt(packet.sourceFrame+n));
+    SGSingStreamDestroy(s);
+}
 int main(void) {
+    coldPrefix();
     failures();
     assert(scenario(true,false,false,1,800)>20);
     assert(scenario(true,false,false,.7f,800)>20);

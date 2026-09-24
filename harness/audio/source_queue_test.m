@@ -20,6 +20,7 @@ int main(void) {
     put((void *)sg_sourceImage, 0x180f3c, UINT64_C(0xa9025ff8d10183ff));
     put((void *)sg_sourceImage, 0x10908b4, UINT64_C(0x17c2d2c2d1002000));
     put((void *)sg_sourceImage, 0x1453c0, UINT64_C(0xa9016ffcd101c3ff));
+    put((void *)sg_sourceImage, 0x1454b4, UINT64_C(0x95ece96591006296));
     uint64_t context[32] = {0}, sink[16] = {0}, owner[32] = {0};
     uint64_t sinkTable[3] = {0}, delegateTable[3] = {0};
     uint64_t node[8] = {0}, block[8] = {0}, event[8] = {0}, later[8] = {0}, nextBlock[8] = {0};
@@ -35,6 +36,28 @@ int main(void) {
     assert(SGAudioSourceQueueFrames(callback, UINT32_MAX) == 44100);
     node[4] = (uintptr_t)event; event[4] = (uintptr_t)later; later[0] = (uintptr_t)block;
     assert(SGAudioSourceQueueFrames(callback, UINT32_MAX) == 44100); // no PCM beyond the event
+    SGAudioSourcePrefix prefix = SGAudioSourceQueuePrefix(callback, UINT32_MAX, true);
+    assert(prefix.frames == 88200 && prefix.boundary == 44100);
+    put(owner, 0xa0, UINT64_C(1) << 8); // the native end marker stops the source
+    prefix = SGAudioSourceQueuePrefix(callback, UINT32_MAX, true);
+    assert(prefix.frames == 44100 && prefix.boundary == UINT32_MAX);
+    put(owner, 0xa0, (UINT64_C(1) << 8) | (UINT64_C(1) << 16)); // the reader can continue
+    prefix = SGAudioSourceQueuePrefix(callback, UINT32_MAX, true);
+    assert(prefix.frames == 88200 && prefix.boundary == 44100);
+    put(owner, 0xa0, 0);
+    prefix = SGAudioSourceQueuePrefix(callback, 44000, true);
+    assert(prefix.frames == 44000 && prefix.boundary == UINT32_MAX);
+    prefix = SGAudioSourceQueuePrefix(callback, 44101, true);
+    assert(prefix.frames == 44101 && prefix.boundary == 44100);
+    uint64_t secondEvent[8] = {0}, third[8] = {0};
+    later[4] = (uintptr_t)secondEvent; secondEvent[4] = (uintptr_t)third; third[0] = (uintptr_t)block;
+    prefix = SGAudioSourceQueuePrefix(callback, UINT32_MAX, true);
+    assert(prefix.frames == 88200 && prefix.boundary == 44100); // only one following song
+    later[4] = 0;
+    put((void *)sg_sourceImage, 0x1454b4, 0);
+    assert(!SGAudioSourceQueuePrefix(callback, UINT32_MAX, true).frames);
+    assert(SGAudioSourceQueueFrames(callback, UINT32_MAX) == 44100); // strict reads remain fenced
+    put((void *)sg_sourceImage, 0x1454b4, UINT64_C(0x95ece96591006296));
     owner[3] = (uintptr_t)event; assert(!SGAudioSourceQueueFrames(callback, UINT32_MAX));
     owner[3] = (uintptr_t)node; owner[0xb8 / 8] = 1;
     assert(!SGAudioSourceQueueFrames(callback, UINT32_MAX)); // queued seek/flush command

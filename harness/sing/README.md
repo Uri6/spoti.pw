@@ -1,9 +1,11 @@
 # Sing feasibility and audio primitives
 
-Sing is an opt-in implementation checkpoint. Model loading runs separately from playback;
+Sing is an opt-in implementation checkpoint. Model loading and source capture run concurrently;
 preparation continues emitting the original audio while verified source read-ahead builds an
 aligned vocal reserve. Preparing while paused loads the model; it does not separate an entire paused song.
-The selected vocal level survives track changes, but next-track pre-separation is not implemented.
+The selected vocal level survives track changes. An expected next song can now be prepared from
+Spotify's decoded continuous prefix while the current song's retained tail is still audible.
+This boundary path has deterministic coverage; physical transition acceptance remains pending.
 The existing Core AI GPU bundle needs a real background GPU grant, which was unavailable on the tested
 iPhone even with an authorized signing profile. Core ML bundles use CPU inference in the background;
 the optional adaptive mode also allows GPU inference while active in the foreground. The CPU path
@@ -15,7 +17,7 @@ thermal, audible-continuity, track-transition and lock-screen acceptance remain 
 
 `Shared/Audio/SGAudioPipeline.x` owns Spotify's mixer connection and RemoteIO observation once.
 Sing operates on 44.1 kHz stereo source samples before time/pitch processing; output processing
-runs speed/pitch, JamesDSP, then music haptics in a fixed order. The audio callback exchanges
+runs speed/pitch, upstream's AudioEffects engine, then music haptics in a fixed order. The audio callback exchanges
 generation/track/source-frame/format-stamped packets with an asynchronous Swift worker through
 bounded single-producer/single-consumer queues. Model loading, hashing and inference never run
 on that callback. The reconstructed mix is `original - (1 - level²) * vocals`, clamped to
@@ -24,19 +26,30 @@ on that callback. The reconstructed mix is `original - (1 - level²) * vocals`, 
 `SGAudioSourceQueue.m` reads queue metadata only for the pinned Spotify 9.1.78 arm64 Mach-O UUID
 and verified callback/reader signatures. It neither reads private PCM nor calls private functions.
 The render consumer obtains samples through the existing AudioUnit source, pulling at most two
-render quanta when verified spare audio is available, leaving a 120 ms native reserve. Null/event
-nodes and pending commands fence read-ahead; invalid or unstable metadata supplies no spare budget.
+render quanta when verified spare audio is available, leaving a 120 ms native reserve. Pending commands,
+stopping end markers and unstable metadata supply no extra budget. A known next track permits one
+end marker only when the pinned reader's flags prove it can continue into the following PCM.
+The original AudioUnit remains the sole consumer. A natural transition retains the worker and
+buffered samples; a bounded clock-marker queue moves the audible clock at the actual sample boundary.
+Explicit seek/skip, a different next-track identity and graph replacement invalidate the old generation.
 The metadata scan stops after verifying the prefix needed for the current pull and native reserve;
 it does not walk the rest of the buffered song on every render callback. A long-queue fixture
-reduced kernel metadata reads from 260 to 44 without changing the available pull budget.
+reduced kernel metadata reads from 260 to 44; grouping adjacent metadata fields now uses 32 for
+the same prefix. These are fixture counts, not device energy measurements.
 An exhausted, non-null block is skipped as the verified native reader does on its next pull;
-only a null block fences the following audio. Treating exhausted blocks as fences had prevented
+an end marker requires the separate continuity checks above. Treating exhausted blocks as fences had prevented
 read-ahead until Sing's reserve drained, repeatedly restoring original vocals even with fast
 inference. The regression covers an exhausted head, following audio, real events and cycles.
 Other binary layouts cannot attach Sing. The bounded eight-second timeline targets 5.5 seconds
 of original audio ahead, emits dry audio immediately, and fades in vocal reduction only when
 enough aligned future vocals are ready. Expired results never overwrite future ring-buffer slots.
 Disabling stops extra pulls and drains the retained original in order before detaching.
+During model loading, only the bounded playback timeline retains audio; the worker queue stays
+empty, so a slow cold load cannot exhaust it. Once Ready, at most eight retained packets are
+forwarded per callback. The worker skips only the initial samples already emitted as original
+audio and starts inference at the live source cursor rather than processing an obsolete backlog.
+The timeline rejects skips into future audio or any missing later hop. Worker idle polling is
+25 ms and controller reconciliation is 100 ms; lyric and audio clocks remain render-driven.
 
 The separator is Mel-Band RoFormer with the pinned third-party checkpoint below. Apple's
 [Core AI](https://developer.apple.com/documentation/coreai/aimodel) supplies the execution runtime;
@@ -86,8 +99,8 @@ The actor also reuses its Core ML input tensor/provider and inverse accumulator.
 directly into that tensor, avoiding a separate 3.3 MB spectral allocation and copy per window.
 One zero-input prediction warms the CPU model before the worker announces Ready, so first-use
 allocation/specialization occurs while Spotify is still playing its original audio. The model
-store shares that load and keeps it warm across seeks. Read-ahead builds the vocal reserve after
-loading while original playback continues; load time and time to reduction are separate measurements.
+store shares that load and keeps it warm across seeks. Source read-ahead overlaps model loading;
+inference builds the vocal reserve once loading completes. Original playback continues throughout.
 
 With warm-up included in loading, the measured Mac run took 0.696–0.735 seconds per two-second window,
 with cosine 0.999991 and RMS ratio 0.998898 against the reference, and about 1.70 GB peak RSS. The
@@ -213,12 +226,14 @@ through a longer preparation and every reduced sample after activation without e
 Tests also cover variable callback sizes, a temporarily depleted source queue, and a source with
 no verified read-ahead, which must keep playing dry. Time to reduction still exceeds the original
 three-second target; model load and sustained thermal performance require real-device measurement.
-The controller test uses the real lifecycle and stream with deterministic player, worker and
+The cold-load regression plays 30 seconds of exact original samples through timeline wraparound
+without worker input, then starts forwarding at the live cursor. The controller test uses the real lifecycle and stream with deterministic player, worker and
 AudioUnit boundaries: thermal gating/recovery, drain-before-retry, normal worker completion before
 the polling timer, model retention and cancellation during loading. It also covers preparing a
 model while paused before an audio graph exists, cancelling that prepared model without waiting
 for Play, waiting for the graph to appear after Play (with a bounded timeout), keeping 70% vocals
-through a loading/track transition, and preserving an explicit Off.
+through a loading/track transition, continuing the expected next track and repeat-one with the same worker,
+and preserving an explicit Off.
 These tests do not constitute a live Spotify playback test.
 
 Background ownership tests exercise entitlement and registration checks, asynchronous GPU grants,
@@ -269,11 +284,13 @@ uninterrupted render cadence, with exact original sample order through bypass an
 The model store retains a warm model for 60 seconds, shares a pending load, and invalidates expired
 loads when unloaded. Inference on a shared warm function is serialized across retiring generations.
 An additional cancellation case unloads during model preparation and requires Finished without
-Ready, a failure callback or any source pulls. The real-worker timing assertion remains in place:
-CPU warm-up moves cold specialization outside the attached stream. With continuous read-ahead,
-the real-worker checks emit original audio on callback zero and reach aligned vocal reduction in
-roughly 4.8–4.9 seconds with FP32, or 3.8 seconds with mixed precision, in the measured Mac runs. Their source is deterministic, so these results
-must not be presented as a Spotify device startup measurement.
+Ready, a failure callback or any source pulls. A cold-start case begins rendering during model
+loading and verifies sample order through activation and cancellation. In the integrated adaptive
+Mac run, Ready arrived at 11.698 seconds and reduction at 12.321 seconds, with original audio
+from callback zero. This overlaps loading and read-ahead but does not meet a three-second cold
+activation target. Earlier runs that waited for Ready before rendering took roughly 4.8–4.9 seconds
+with FP32 or 3.8 seconds with mixed precision, excluding loading. These deterministic-source
+measurements must not be presented as Spotify device startup or thermal acceptance.
 
 The benchmark loads the real graph through the production Swift adapter, compares four inferences
 to the pinned golden vocals, checks silence, quiet input, one silent channel and boundary impulses,

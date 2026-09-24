@@ -107,7 +107,7 @@ private final class SGStemJob: @unchecked Sendable {
                 if packetOffset == packetCount {
                     let count = read(context, &packet, &metadata)
                     if count < 0 { break }
-                    if count == 0 { try await Task.sleep(for: .milliseconds(10)); continue }
+                    if count == 0 { try await Task.sleep(for: .milliseconds(25)); continue }
                     guard count <= 1024 else { throw SGStemError.invalidInput }
                     if origin == nil {
                         origin = metadata; received = metadata[2]; nextWindow = received

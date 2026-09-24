@@ -16,6 +16,8 @@ static float renderBuffer[882], *fixture;
 static uint64_t pulled, audible;
 static size_t fixtureFrames;
 static bool injectStall;
+static uint64_t firstOutput = UINT64_MAX;
+static double loadStarted;
 static double now(void);
 
 static int32_t readInput(void *context, float *pcm, uint64_t *metadata) {
@@ -23,7 +25,7 @@ static int32_t readInput(void *context, float *pcm, uint64_t *metadata) {
     int32_t state = SGSingStreamWorkerState(stream);
     if (state <= 0) return state;
     SGAudioStamp stamp;
-    if (!SGSingStreamReadInput(stream, &stamp, pcm)) return 0;
+    if (!SGSingStreamReadLiveInput(stream, &stamp, pcm)) return 0;
     metadata[0] = stamp.generation; metadata[1] = stamp.track;
     metadata[2] = stamp.sourceFrame; metadata[3] = stamp.format;
     return stamp.frames;
@@ -32,9 +34,10 @@ static int32_t writeOutput(void *context, const float *pcm, uint32_t frames, uin
                             uint64_t track, uint64_t frame, uint32_t format) {
     assert(context == stream);
     if (SGSingStreamWorkerState(stream) < 0) return 0;
+    if (firstOutput == UINT64_MAX) firstOutput = frame;
     // Hold one completed result until the live buffer actually enters recovery. A fixed sleep
     // can miss depletion on a faster backend or leave too little time to observe its recovery.
-    if (injectStall && frame == 66150 * 8) {
+    if (injectStall && frame - firstOutput == 66150 * 8) {
         double deadline = now() + 8;
         while (SGSingStreamState(stream) != SGSingTimelineRecovering && now() < deadline &&
                SGSingStreamWorkerState(stream) > 0) usleep(10000);
@@ -45,7 +48,10 @@ static int32_t writeOutput(void *context, const float *pcm, uint32_t frames, uin
 static void report(void *context, int32_t status) {
     assert(context == stream);
     if (status == SGStemLoading) atomic_store(&loading, true);
-    if (status == SGStemReady) atomic_store(&ready, true);
+    if (status == SGStemReady) {
+        fprintf(stderr, "model ready after %.3f seconds\n", now() - loadStarted);
+        SGSingStreamSetModelReady(stream, true); atomic_store(&ready, true);
+    }
     if (status == SGStemFailed) {
         fprintf(stderr, "worker failed: timeline state %d, queued %llu\n", SGSingStreamState(stream),
                 (unsigned long long)SGSingStreamQueued(stream));
@@ -66,7 +72,8 @@ static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
 int main(int argc, char **argv) {
     assert(argc >= 4 && argc <= 6); // model, hashes, golden input, optional cancel tick and stalled-output case
     bool cancelLoading = argc == 5 && !strcmp(argv[4], "--cancel-loading");
-    unsigned cancelAt = argc >= 5 && !cancelLoading ? (unsigned)atoi(argv[4]) : 1200;
+    bool cold = argc == 5 && !strcmp(argv[4], "--cold");
+    unsigned cancelAt = argc >= 5 && !cancelLoading && !cold ? (unsigned)atoi(argv[4]) : cold ? 2400 : 1200;
     injectStall = argc == 6;
     assert(cancelAt >= 200 && cancelAt <= 2400);
     FILE *file = fopen(argv[3], "rb"); assert(file);
@@ -75,6 +82,8 @@ int main(int argc, char **argv) {
     fixture = malloc(bytes); assert(fixture && fread(fixture, 1, bytes, file) == (size_t)bytes); fclose(file);
     fixtureFrames = bytes / 8;
     stream = SGSingStreamCreate((SGAudioStamp){1,2,0,3,0}, 88200, 66150, 1); assert(stream);
+    SGSingStreamSetModelReady(stream, false);
+    loadStarted = now();
     void *worker = SGStemWorkerStart(stream, argv[1], argv[2], 66150, readInput, writeOutput, report); assert(worker);
     double deadline = now()+60;
     if (cancelLoading) {
@@ -88,8 +97,10 @@ int main(int argc, char **argv) {
         puts("real worker: cancelled loading before Ready; no source pulls, no failure callback, finished safely");
         return 0;
     }
-    while (!atomic_load(&ready) && !atomic_load(&finished) && now() < deadline) usleep(10000);
-    assert(atomic_load(&ready) && !atomic_load(&failed));
+    if (!cold) {
+        while (!atomic_load(&ready) && !atomic_load(&finished) && now() < deadline) usleep(10000);
+        assert(atomic_load(&ready) && !atomic_load(&failed));
+    }
     double start = now(), activation = 0;
     bool recovered = false, restored = false;
     double recoveryStarted = 0;

@@ -6,8 +6,10 @@
 static SPTPlayerState *player;
 static NSProcessInfoThermalState heat;
 static unsigned starts, cancels, purges;
-static BOOL paused, loading, outputAvailable = YES;
+static BOOL paused, loading, repeatTrack, outputAvailable = YES;
 static NSString *trackURI = @"spotify:track:fixture";
+static NSString *nextURI;
+static uint64_t sourceFrames, naturalBoundary = UINT64_MAX;
 static BOOL backgroundAllowed = YES;
 static void (^backgroundChanged)(BOOL);
 static void *attached;
@@ -17,12 +19,21 @@ static struct { void *context; SGStemStatus status; BOOL cancelled; } jobs[24];
 @implementation SPTPlayerTrack
 - (id)URI { return trackURI; }
 @end
+@interface SGNextTrack : SPTPlayerTrack @end
+@implementation SGNextTrack
+- (id)URI { return nextURI; }
+@end
+@implementation SPTPlayerOptions
+- (BOOL)repeatingTrack { return repeatTrack; }
+@end
 @implementation SPTPlayerState
 - (SPTPlayerTrack *)track { static SPTPlayerTrack *track; if (!track) track = [SPTPlayerTrack new]; return track; }
 - (BOOL)isPlaying { return !loading; }
 - (BOOL)isPaused { return paused; }
 - (BOOL)isLoading { return loading; }
 - (double)duration { return 300; }
+- (NSArray *)future { return nextURI ? @[[SGNextTrack new]] : @[]; }
+- (SPTPlayerOptions *)options { static SPTPlayerOptions *options; if (!options) options = [SPTPlayerOptions new]; return options; }
 @end
 void SGSingBackgroundStart(void (^changed)(BOOL)) { backgroundChanged = [changed copy]; }
 void SGSingBackgroundEnd(void) { backgroundChanged = nil; }
@@ -48,6 +59,12 @@ void SGStemWorkerCancel(void *handle, int32_t unload) {
     assert(!job->cancelled); job->cancelled = YES; cancels++;
 }
 UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames) { return MIN(44100, maximumFrames); }
+SGAudioSourcePrefix SGAudioPipelineSourcePrefix(UInt32 maximumFrames, bool continuous) {
+    UInt32 frames = SGAudioPipelineSourceAheadFrames(maximumFrames);
+    uint64_t boundary = naturalBoundary >= sourceFrames ? naturalBoundary - sourceFrames : UINT64_MAX;
+    if (!continuous && boundary < frames) frames = (UInt32)boundary;
+    return (SGAudioSourcePrefix){frames, continuous && boundary < frames ? (UInt32)boundary : UINT32_MAX};
+}
 bool SGAudioPipelineSourceCanReadAhead(void) { return outputAvailable; }
 bool SGAudioPipelineSourceProcessorAttached(void *context) { return context == attached; }
 bool SGAudioPipelineSourceFormat(AudioStreamBasicDescription *format) {
@@ -60,6 +77,7 @@ bool SGAudioPipelineClearSourceProcessor(void *context) { if (context != attache
 OSStatus SGAudioPipelinePullOriginal(UInt32 frames, AudioBufferList *data, const AudioTimeStamp *time) {
     for (unsigned c = 0; c < data->mNumberBuffers; c++)
         for (unsigned n = 0; n < frames; n++) ((float *)data->mBuffers[c].mData)[n] = .125f;
+    sourceFrames += frames;
     return noErr;
 }
 static NSProcessInfoThermalState thermal(id self, SEL command) { return heat; }
@@ -328,5 +346,91 @@ int main(void) { @autoreleasepool {
     assert(!backgroundChanged && sg_controller.session == cpuSession && SGSingVocalLevel() == .7f);
     paused = YES; [sg_controller reconcile]; SGSingSetEnabled(NO); report(18, SGStemFinished);
     assert(!attached && !sg_controller.session && starts == cancels && purges == cpuPurges);
-    puts("sing controller: thermal gating, retirement races, paused preparation, loading transitions, retained 70% and explicit Off passed");
+    // A cold model must collect PCM without stopping playback. Ready is deliberately delayed
+    // here: original samples still reach the output and are retained for the eventual worker.
+    paused = NO; SGSingSetEnabled(YES); report(19, SGStemLoading);
+    SGSingSession *loadingSession = sg_controller.session;
+    assert(attached && !loadingSession.ready && SGSingCurrentState() == SGSingPreparing);
+    for (unsigned tick = 0; tick < 300; tick++) {
+        assert(!render(attached, 32, &output.list, NULL));
+        for (int n = 0; n < 32; n++) assert(left[n] == .125f && right[n] == .125f);
+    }
+    assert(SGSingStreamPresented(stream(loadingSession)) == 9600);
+    assert(SGSingStreamQueued(stream(loadingSession)) == 9600);
+    report(19, SGStemReady);
+    assert(sg_controller.session == loadingSession && loadingSession.ready && starts == 20);
+    SGSingSetEnabled(NO); report(19, SGStemFinished);
+    s = stream(loadingSession);
+    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
+    [sg_controller reconcile];
+    assert(!attached && !sg_controller.session && starts == cancels);
+    // A verified, expected natural boundary preserves the worker, tail, level and continuous
+    // sample sequence. A different track or an explicit command still retires that generation.
+    nextURI = @"spotify:track:prepared";
+    sourceFrames = 0; naturalBoundary = 8 * 44100 + 23;
+    unsigned transitionJob = starts;
+    uint64_t oldTrack = SGSingTrackIdentifier(trackURI), captured = 0, nextWindow = 0;
+    SGSingSetEnabled(YES); report(transitionJob, SGStemReady);
+    SGSingSession *transitionSession = sg_controller.session;
+    float packetPCM[2048];
+    vocals = calloc(132300, sizeof(float));
+    BOOL transitioned = NO, repeated = NO;
+    uint64_t firstBoundary = naturalBoundary, repeatBoundary = firstBoundary + 8 * 44100;
+    for (unsigned tick = 0; tick < 1000; tick++) {
+        assert(!render(attached, 32, &output.list, NULL));
+        // Larger stream renders below use the same production adapter's source callbacks.
+        float l[1024], r[1024];
+        struct { AudioBufferList list; AudioBuffer more; } block;
+        block.list.mNumberBuffers = 2;
+        block.list.mBuffers[0] = (AudioBuffer){1, sizeof l, l};
+        block.list.mBuffers[1] = (AudioBuffer){1, sizeof r, r};
+        assert(!render(attached, 1024, &block.list, NULL));
+        SGAudioStamp packet;
+        while (SGSingStreamReadInput(stream(transitionSession), &packet, packetPCM)) {
+            assert(packet.track == oldTrack && packet.sourceFrame == captured);
+            captured += packet.frames;
+        }
+        while (captured >= nextWindow + 88200) {
+            assert(SGSingStreamWriteVocals(stream(transitionSession),
+                (SGAudioStamp){sg_controller.generation,oldTrack,nextWindow,1,66150}, vocals));
+            nextWindow += 66150;
+        }
+        if (!transitioned && sourceFrames > naturalBoundary) {
+            trackURI = nextURI;
+            repeatTrack = YES; nextURI = @"spotify:track:after-repeat";
+            [sg_controller playerStateDidChange:player];
+            assert(sg_controller.session == transitionSession && starts == transitionJob + 1);
+            assert(SGSingEnabled() && SGSingVocalLevel() == .7f);
+            assert([sg_controller.session.nextTrack isEqualToString:trackURI]);
+            naturalBoundary = repeatBoundary;
+            transitioned = YES;
+        }
+        [sg_controller reconcile];
+        if (transitioned && sourceFrames > repeatBoundary) {
+            // Repeat-one does not announce a new URI. Reconcile must still retain the
+            // same worker and reset the clock when the repeated PCM becomes audible.
+            assert(sg_controller.session == transitionSession && starts == transitionJob + 1);
+            repeated = YES;
+        }
+        uint64_t presented = SGSingStreamPresented(stream(transitionSession));
+        if (presented >= firstBoundary) {
+            double position;
+            assert(SGSingPosition(player, &position));
+            uint64_t origin = presented >= repeatBoundary ? repeatBoundary : firstBoundary;
+            double expected = fmax(0, (presented - origin) / 44100.0 - AVAudioSession.sharedInstance.outputLatency);
+            if (fabs(position - expected) >= 1e-6)
+                fprintf(stderr, "repeat clock: audible %llu origin %llu position %.9f expected %.9f\n",
+                    (unsigned long long)presented, (unsigned long long)origin, position, expected);
+            assert(fabs(position - expected) < 1e-6);
+        }
+        if (tick > 300) assert(SGSingCurrentState() == SGSingActive);
+    }
+    free(vocals); assert(transitioned && repeated);
+    // An unexpected state change is fenced even without an intercepted Next command.
+    trackURI = @"spotify:track:unrelated";
+    [sg_controller playerStateDidChange:player];
+    assert(!attached && !sg_controller.session && sg_controller.retired.count == 1);
+    SGSingSetEnabled(NO); report(transitionJob, SGStemFinished);
+    assert(!sg_controller.retired.count && starts == cancels);
+    puts("sing controller: thermal gating, retirement races, concurrent cold preparation, next-track/repeat continuity, retained 70% and explicit Off passed");
 } return 0; }

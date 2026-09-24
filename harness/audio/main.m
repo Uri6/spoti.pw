@@ -1,7 +1,8 @@
 // Deterministic graph-control tests for the production pipeline. The Core Audio boundary is mocked;
-// harness/speed, harness/jamesdsp/sim and harness/haptics/sim cover real RemoteIO rendering.
+// harness/speed, harness/audio-effects/sim and harness/haptics/sim cover real RemoteIO rendering.
 #import <Foundation/Foundation.h>
 #import <AudioToolbox/AudioToolbox.h>
+#import "Shared/Audio/SGAudioSourceQueue.h"
 #import <assert.h>
 #import <pthread.h>
 #import <stdatomic.h>
@@ -27,6 +28,7 @@ static atomic_bool blockRender, renderEntered, releaseRender;
 static OSStatus renderError;
 static bool renderSilence, refuseCallback;
 static bool reentrantChange;
+static uint64_t naturalBoundary = UINT64_MAX;
 static OSStatus (*reboundSet)(AudioUnit, AudioUnitPropertyID, AudioUnitScope, AudioUnitElement, const void *, UInt32);
 
 AudioComponent AudioComponentInstanceGetComponent(AudioComponentInstance instance) { return (AudioComponent)instance; }
@@ -60,7 +62,8 @@ OSStatus AudioUnitRender(AudioUnit value, AudioUnitRenderActionFlags *flags, con
     if (renderError) return renderError;
     if (renderSilence) { *flags |= kAudioUnitRenderAction_OutputIsSilence; return noErr; }
     for (UInt32 b = 0; b < data->mNumberBuffers; b++)
-        for (UInt32 n = 0; n < frames; n++) ((float *)data->mBuffers[b].mData)[n] = .25f;
+        for (UInt32 n = 0; n < frames; n++)
+            ((float *)data->mBuffers[b].mData)[n] = u->frames - frames + n >= naturalBoundary ? .45f : .25f;
     return noErr;
 }
 OSStatus AudioUnitAddRenderNotify(AudioUnit u, AURenderCallback callback, void *context) { return noErr; }
@@ -93,6 +96,13 @@ static OSStatus nativeSource(void *c, AudioUnitRenderActionFlags *f, const Audio
 void SGAudioSourceQueueInitialize(void) {}
 bool SGAudioSourceQueueSupported(AURenderCallbackStruct callback) { return callback.inputProc == nativeSource; }
 UInt32 SGAudioSourceQueueFrames(AURenderCallbackStruct callback, UInt32 maximumFrames) { return SGAudioSourceQueueSupported(callback) ? MIN(44100, maximumFrames) : 0; }
+SGAudioSourcePrefix SGAudioSourceQueuePrefix(AURenderCallbackStruct callback, UInt32 maximumFrames, bool continuous) {
+    UInt32 frames = SGAudioSourceQueueFrames(callback, maximumFrames);
+    uint64_t at = ((Unit *)callback.inputProcRefCon)->frames;
+    uint64_t boundary = naturalBoundary >= at ? naturalBoundary - at : UINT64_MAX;
+    if (!continuous && boundary < frames) frames = (UInt32)boundary;
+    return (SGAudioSourcePrefix){frames, continuous && boundary < frames ? (UInt32)boundary : UINT32_MAX};
+}
 
 #include "Shared/Audio/SGAudioPipeline.x"
 #include "Shared/Sing/SGSingAudio.h"
@@ -134,12 +144,82 @@ static OSStatus separate(void *context, UInt32 frames, AudioBufferList *data, co
 static void *renderThread(void *context) { assert(render(context, 128) == noErr); return NULL; }
 static void *disposeThread(void *context) { assert(dispose(unit(context)) == noErr); return NULL; }
 
+static atomic_bool clockReading;
+static atomic_uint clockReads;
+static void *clockReader(void *context) {
+    while (atomic_load(&clockReading)) {
+        double position;
+        if (SGSingAudioClock(31, &position)) {
+            assert(position >= 1000 && position < 1020);
+            atomic_fetch_add(&clockReads, 1);
+        }
+        if (SGSingAudioClock(32, &position)) {
+            assert(position >= 0 && position < 10);
+            atomic_fetch_add(&clockReads, 1);
+        }
+    }
+    return NULL;
+}
+
+static void transition(Unit *source, Unit *output) {
+    SGSingAudio *audio = SGSingAudioCreate((SGAudioStamp){7, 31, 0, 3, 0}, 88200, 66150, .2f);
+    SGSingAudioSetClock(audio, 1000, 31); SGSingAudioExpectTrack(audio, 32);
+    assert(SGSingAudioAttach(audio));
+    atomic_store(&clockReading, true);
+    pthread_t reader;
+    assert(!pthread_create(&reader, NULL, clockReader, NULL));
+    SGSingStream *s = SGSingAudioStream(audio);
+    const uint64_t boundary = 10 * 44100 + 137; // deliberately inside an irregular render quantum
+    naturalBoundary = source->frames + boundary;
+    float input[2048];
+    static float vocal[132300];
+    for (unsigned i = 0; i < 132300; i++) vocal[i] = .1f;
+    uint64_t captured = 0, nextWindow = 0, audible = 0;
+    bool continued = false;
+    for (unsigned tick = 0; tick < 800; tick++) {
+        unsigned frames = tick % 3 ? 882 : 471;
+        assert(!render(output, frames));
+        if (tick > 300) for (unsigned n = 0; n < frames; n++) {
+            float expected = (audible + n >= boundary ? .45f : .25f) - .096f;
+            assert(fabsf(pcm[0][n] - expected) < 1e-6 && pcm[0][n] == pcm[1][n]);
+        }
+        audible += frames;
+        SGAudioStamp packet;
+        while (SGSingStreamReadInput(s, &packet, input)) {
+            assert(packet.sourceFrame == captured);
+            captured += packet.frames;
+        }
+        while (captured >= nextWindow + 88200) {
+            assert(SGSingStreamWriteVocals(s, (SGAudioStamp){7,31,nextWindow,3,66150}, vocal));
+            nextWindow += 66150;
+        }
+        if (!continued && captured > boundary) {
+            assert(!SGSingAudioContinueTrack(audio, 99)); // changed queue identity cannot reuse stems
+            assert(SGSingAudioContinueTrack(audio, 32));
+            assert(SGSingAudioAwaitingTrack(audio, 32) && audible < boundary);
+            continued = true;
+        }
+        double position = -1;
+        uint64_t track = audible < boundary ? 31 : 32;
+        assert(SGSingAudioClock(track, &position));
+        double expectedPosition = audible < boundary ? 1000 + audible / 44100.0 : (audible - boundary) / 44100.0;
+        assert(fabs(position - expectedPosition) < 1e-6);
+        if (tick > 300) assert(SGSingStreamState(s) == SGSingTimelineActive);
+    }
+    atomic_store(&clockReading, false);
+    pthread_join(reader, NULL);
+    assert(atomic_load(&clockReads));
+    assert(continued && !SGSingAudioAwaitingTrack(audio, 32));
+    SGSingAudioInvalidate(); assert(!SGSingAudioContinueTrack(audio, 32));
+    SGSingAudioDetach(audio); SGSingAudioDestroy(audio); naturalBoundary = UINT64_MAX;
+}
+
 int main(void) {
     @autoreleasepool {
         static const SGAudioProcessor a = {NULL, speed}, b = {NULL, effects}, c = {NULL, haptics};
         assert(SGAudioPipelineRegister(SGAudioStageHaptics, &c));
         assert(SGAudioPipelineRegister(SGAudioStageSpeedPitch, &a));
-        assert(SGAudioPipelineRegister(SGAudioStageJamesDSP, &b));
+        assert(SGAudioPipelineRegister(SGAudioStageEffects, &b));
         AudioStreamBasicDescription format = {44100, kAudioFormatLinearPCM,
             kAudioFormatFlagsNativeFloatPacked | kAudioFormatFlagIsNonInterleaved, 4, 1, 4, 2, 32, 0};
         Unit unrelated[12] = {0};
@@ -213,6 +293,7 @@ int main(void) {
         assert(!SGSingAudioClock(2, &audible));
         SGSingAudioDetach(sing);
         SGSingAudioDestroy(sing);
+        transition(&source, &output);
         assert(SGAudioPipelineSetSourceProcessor(separate, &stageCalls));
         assert(!setProperty(unit(&source), kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &other, sizeof other));
         assert(!SGAudioPipelineSourceProcessorAttached(&stageCalls) && !SGAudioPipelineSourceCanReadAhead());

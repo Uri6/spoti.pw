@@ -23,9 +23,9 @@
 // over, which is what it counts.
 //
 // When the connection is never seen, pitch falls back to the way it first shipped: a render notify on the
-// RemoteIO unit, registered in the central pipeline before JamesDSP and Music Haptics, runs each buffer
+// RemoteIO unit, registered in the central pipeline before audio effects and Music Haptics, runs each buffer
 // through a unit working in place; speed is then unavailable. Those buffers are in the unit's output format,
-// the hardware's, not the one Spotify hands the unit (harness/jamesdsp/sim), so the fallback's unit is made
+// the hardware's, not the one Spotify hands the unit (harness/audio-effects/sim), so the fallback's unit is made
 // for that one.
 //
 // Speed and pitch last until Spotify quits.

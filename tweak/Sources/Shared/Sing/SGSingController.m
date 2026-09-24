@@ -17,9 +17,10 @@ static BOOL sg_configured;
 @interface SGSingSession : NSObject
 @property (nonatomic) SGSingAudio *audio;
 @property (nonatomic) void *worker;
-@property (nonatomic) BOOL attached, finished, retiring, ready;
+@property (nonatomic) BOOL attached, finished, retiring, loading, ready;
 @property (nonatomic) CFTimeInterval attachDeadline;
 @property (nonatomic) NSString *track;
+@property (nonatomic) NSString *nextTrack;
 @end
 @implementation SGSingSession
 - (void)dealloc {
@@ -60,7 +61,11 @@ uint64_t SGSingTrackIdentifier(id uri) {
     return hash ?: 1;
 }
 BOOL SGSingPosition(SPTPlayerState *state, double *position) {
-    return state && SGSingAudioClock(SGSingTrackIdentifier(state.track.URI), position);
+    if (!state) return NO;
+    uint64_t track = SGSingTrackIdentifier(state.track.URI);
+    if (SGSingAudioClock(track, position)) return YES;
+    if (SGSingAudioAwaitingTrack(sg_controller.session.audio, track)) { *position = 0; return YES; }
+    return NO;
 }
 static SGSingStream *stream(SGSingSession *session) { return SGSingAudioStream(session.audio); }
 static int32_t readPCM(void *context, float *pcm, uint64_t *metadata) {
@@ -68,7 +73,7 @@ static int32_t readPCM(void *context, float *pcm, uint64_t *metadata) {
     int32_t state = SGSingStreamWorkerState(s);
     if (state <= 0) return state;
     SGAudioStamp stamp;
-    if (!SGSingStreamReadInput(s, &stamp, pcm)) return 0;
+    if (!SGSingStreamReadLiveInput(s, &stamp, pcm)) return 0;
     metadata[0] = stamp.generation; metadata[1] = stamp.track;
     metadata[2] = stamp.sourceFrame; metadata[3] = stamp.format;
     return stamp.frames;
@@ -135,8 +140,22 @@ static void workerStatus(void *context, int32_t status) {
 - (void)startTimer {
     if (_timer) return;
     __weak typeof(self) weak = self;
-    _timer = [NSTimer timerWithTimeInterval:0.05 repeats:YES block:^(NSTimer *timer) { [weak reconcile]; }];
+    // Audio and lyric clocks are render-driven. This timer only reconciles control state.
+    _timer = [NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) { [weak reconcile]; }];
+    _timer.tolerance = 0.02;
     [NSRunLoop.mainRunLoop addTimer:_timer forMode:NSRunLoopCommonModes];
+}
+- (void)prepareNextTrack:(SPTPlayerState *)state {
+    SGSingSession *session = _session;
+    if (!session || session.retiring || ![session.track isEqualToString:SGURIString(state.track.URI)]) return;
+    id next = [state respondsToSelector:@selector(future)] ? state.future.firstObject : nil;
+    SPTPlayerOptions *options = [state respondsToSelector:@selector(options)] ? state.options : nil;
+    if ([options respondsToSelector:@selector(repeatingTrack)] && options.repeatingTrack) next = state.track;
+    NSString *uri = [next respondsToSelector:@selector(URI)] ? SGURIString([next URI]) : nil;
+    if (![uri hasPrefix:@"spotify:track:"]) uri = nil;
+    if (session.nextTrack == uri || [session.nextTrack isEqualToString:uri]) return;
+    session.nextTrack = uri;
+    SGSingAudioExpectTrack(session.audio, SGSingTrackIdentifier(uri));
 }
 - (void)cancelWorker:(SGSingSession *)session unload:(BOOL)unload {
     if (session.worker) { SGStemWorkerCancel(session.worker, unload); session.worker = NULL; }
@@ -173,7 +192,9 @@ static void workerStatus(void *context, int32_t status) {
     session.track = SGURIString(state.track.URI);
     session.audio = SGSingAudioCreate((SGAudioStamp){++_generation, SGSingTrackIdentifier(state.track.URI), 0, 1, 0}, _window, _window * 3 / 4, _level);
     if (!session.audio) { _blockedTrack = session.track; [self publish:SGSingFailed explanation:@"There is not enough memory to start Sing."]; return; }
+    SGSingStreamSetModelReady(stream(session), false);
     _session = session;
+    [self prepareNextTrack:state];
     session.finished = NO;
     void *context = (__bridge_retained void *)session;
     session.worker = SGStemWorkerStart(context, _model.fileSystemRepresentation, _hashes.fileSystemRepresentation, _window * 3 / 4, readPCM, writePCM, workerStatus);
@@ -183,8 +204,10 @@ static void workerStatus(void *context, int32_t status) {
     } else [self publish:SGSingPreparing explanation:nil];
     [self startTimer];
 }
-- (void)attachReadySession:(SGSingSession *)session {
-    if (!session.ready || session.attached || session.retiring || _interrupted) return;
+- (void)attachSession:(SGSingSession *)session {
+    // Capture while the model loads. The timeline emits original audio until it has a full
+    // vocal reserve, so compilation/warm-up and read-ahead no longer happen sequentially.
+    if ((!session.loading && !session.ready) || session.attached || session.retiring || _interrupted) return;
     SPTPlayerState *state = SGPlayerState();
     if (state.isLoading || ![session.track isEqualToString:SGURIString(state.track.URI)]) return;
     SGSingAudioSetClock(session.audio, SGSingSourcePosition(state), SGSingTrackIdentifier(state.track.URI));
@@ -193,7 +216,7 @@ static void workerStatus(void *context, int32_t status) {
     session.attached = SGSingAudioAttach(session.audio);
     if (state.isPaused || !state.isPlaying) {
         session.attachDeadline = 0;
-        [self publish:SGSingReady explanation:nil];
+        [self publish:session.ready ? SGSingReady : SGSingPreparing explanation:nil];
     } else if (!session.attached) {
         // Play is announced before Spotify constructs its local graph. Retain the loaded
         // worker while that settles; a missing graph on the first poll is not a bad format.
@@ -215,13 +238,17 @@ static void workerStatus(void *context, int32_t status) {
         if (session != _session) { [self reconcile]; return; }
     }
     if (session != _session || session.retiring) return;
-    if (status == SGStemReady) {
+    if (status == SGStemLoading || status == SGStemReady) {
         SPTPlayerState *state = SGPlayerState();
         if (!_wanted || (!_interrupted && [self restriction]) || ![session.track isEqualToString:SGURIString(state.track.URI)]) {
             [self stop:YES unload:NO]; [self reconcile]; return;
         }
-        session.ready = YES;
-        [self attachReadySession:session];
+        session.loading = YES;
+        if (status == SGStemReady) {
+            session.ready = YES;
+            SGSingStreamSetModelReady(stream(session), true);
+        }
+        [self attachSession:session];
     } else if (status == SGStemFinished && SGSingStreamStopReason(stream(session)) != SGSingStopNone) {
         // A render-side underrun asks the worker to finish normally. Its final callback can
         // reach main before the polling timer; don't misreport it as a broken voice model.
@@ -248,11 +275,19 @@ static void workerStatus(void *context, int32_t status) {
     if (session) {
         SPTPlayerState *state = SGPlayerState();
         SGSingStreamPause(stream(session), state.isPaused || !state.isPlaying || _interrupted);
-        [self attachReadySession:session];
+        [self attachSession:session];
         if (!_interrupted && session.attached && !SGAudioPipelineSourceProcessorAttached(session.audio)) {
             SGSingAudioInvalidate(); [self stop:YES unload:NO];
             [self publish:SGSingPreparing explanation:nil];
         } else if (session.attached) {
+            // Repeat-one has no URI change to notify observers. Its verified sample boundary
+            // still resets the audible clock without replacing the running separator.
+            if (!session.retiring && [session.nextTrack isEqualToString:session.track] &&
+                SGSingAudioContinueTrack(session.audio, SGSingTrackIdentifier(state.track.URI))) {
+                session.nextTrack = nil;
+                [self prepareNextTrack:state];
+                SGLog(@"Sing continuing a prepared repeat of the current track");
+            }
             CFTimeInterval now = CACurrentMediaTime();
             if (!_usesCoreML && now - _lastBackgroundProgress >= 1) {
                 _lastBackgroundProgress = now;
@@ -264,6 +299,7 @@ static void workerStatus(void *context, int32_t status) {
             SGSingAudioSetLatency(session.audio, (AVAudioSession.sharedInstance.outputLatency + SGPlayerAudioLatency()) * SGPlayerSpeed());
             if (CACurrentMediaTime() - _lastClockPublication >= 0.25) {
                 _lastClockPublication = CACurrentMediaTime();
+                [self prepareNextTrack:state];
                 MPNowPlayingInfoCenter *center = MPNowPlayingInfoCenter.defaultCenter;
                 NSDictionary *info = center.nowPlayingInfo;
                 if (info) center.nowPlayingInfo = info;
@@ -302,8 +338,19 @@ static void workerStatus(void *context, int32_t status) {
 - (void)playerStateDidChange:(SPTPlayerState *)state {
     if (_blockedTrack && ![_blockedTrack isEqualToString:SGURIString(state.track.URI)]) _blockedTrack = nil;
     if (_session && ![_session.track isEqualToString:SGURIString(state.track.URI)]) {
-        SGSingAudioInvalidate(); [self stop:YES unload:NO];
+        NSString *track = SGURIString(state.track.URI);
+        if (!_session.retiring && [_session.nextTrack isEqualToString:track] &&
+            SGSingAudioContinueTrack(_session.audio, SGSingTrackIdentifier(state.track.URI))) {
+            // The source already crossed a verified natural boundary while its previous tail
+            // was audible. Preserve those samples, the ready stems and the loaded worker.
+            SGLog(@"Sing continuing the prepared next track with %llu queued frames",
+                  (unsigned long long)SGSingStreamQueued(stream(_session)));
+            _session.track = track; _session.nextTrack = nil;
+        } else {
+            SGSingAudioInvalidate(); [self stop:YES unload:NO];
+        }
     }
+    [self prepareNextTrack:state];
     [self reconcile];
 }
 - (void)background:(NSNotification *)note {

@@ -100,12 +100,16 @@ static BOOL remoteIO(AudioUnit unit) {
         desc.componentType == kAudioUnitType_Output && desc.componentSubType == kAudioUnitSubType_RemoteIO;
 }
 
-UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames) {
-    if (!pulling || !sourceProcessor) return 0;
+SGAudioSourcePrefix SGAudioPipelineSourcePrefix(UInt32 maximumFrames, bool continuous) {
+    const SGAudioSourcePrefix empty = {0, UINT32_MAX};
+    if (!pulling || !sourceProcessor) return empty;
     AudioUnit source = atomic_load(&sourceUnit);
     for (unsigned i = 0; i < 8; i++)
-        if (sourceCallbacks[i].unit == source) return SGAudioSourceQueueFrames(sourceCallbacks[i].callback, maximumFrames);
-    return 0;
+        if (sourceCallbacks[i].unit == source) return SGAudioSourceQueuePrefix(sourceCallbacks[i].callback, maximumFrames, continuous);
+    return empty;
+}
+UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames) {
+    return SGAudioPipelineSourcePrefix(maximumFrames, false).frames;
 }
 bool SGAudioPipelineSourceCanReadAhead(void) {
     if (inRender) return false;

@@ -70,11 +70,25 @@ bool SGSingTimelineCapture(SGSingTimeline *t, SGAudioStamp stamp, const float *p
     t->captured += stamp.frames;
     return true;
 }
+uint32_t SGSingTimelineCopyOriginal(const SGSingTimeline *t, uint64_t frame, float *pcm, uint32_t frames) {
+    if (!pcm || frame < t->consumed || frame >= t->captured) return 0;
+    if (frames > t->captured - frame) frames = (uint32_t)(t->captured - frame);
+    uint32_t at = frame % t->capacity, first = frames < t->capacity - at ? frames : t->capacity - at;
+    memcpy(pcm, t->dry + (size_t)at * 2, (size_t)first * 2 * sizeof(float));
+    memcpy(pcm + first * 2, t->dry, (size_t)(frames - first) * 2 * sizeof(float));
+    return frames;
+}
 bool SGSingTimelineVocals(SGSingTimeline *t, SGAudioStamp stamp, const float *pcm) {
-    if (!pcm || !matches(t, stamp) || stamp.sourceFrame != t->processed ||
-        stamp.frames > t->captured - t->processed ||
+    if (!pcm || !matches(t, stamp) || stamp.sourceFrame > t->captured ||
+        stamp.frames > t->captured - stamp.sourceFrame ||
         (t->state != SGSingTimelinePreparing && t->state != SGSingTimelineActive && t->state != SGSingTimelineRecovering)) return false;
-    t->processed += stamp.frames;
+    if (stamp.sourceFrame != t->processed) {
+        // Cold preparation may skip an initial prefix already emitted as original audio.
+        // This exception cannot skip an audible/future hole or conceal a later missing hop.
+        if (t->state != SGSingTimelinePreparing || t->processed != t->origin.sourceFrame ||
+            stamp.sourceFrame < t->processed || stamp.sourceFrame > t->consumed) return false;
+    }
+    t->processed = stamp.sourceFrame + stamp.frames;
     // Never write expired samples back into the circular buffer: their slots may now contain
     // future audio. A packet straddling the audible cursor contributes only its live suffix.
     uint64_t expired = t->consumed > stamp.sourceFrame ? t->consumed - stamp.sourceFrame : 0;

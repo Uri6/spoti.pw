@@ -80,6 +80,19 @@ static void recoverWithoutChattering(bool sustained) {
     #undef ADVANCE
 }
 int main(void) {
+    SGSingTimeline *cold = SGSingTimelineCreate(block * 40, block * 2);
+    SGSingTimelineBegin(cold, stamp(0), .7f);
+    for (unsigned n = 0; n < 32; n++) { fill(n*block); assert(SGSingTimelineCapture(cold,stamp(n*block),dry)); }
+    for (unsigned n = 0; n < 4; n++) {
+        assert(SGSingTimelineRead(cold, output, block) == block); verify(n*block,block,1);
+    }
+    fill(5*block); assert(!SGSingTimelineVocals(cold,stamp(5*block),vocal)); // future gap
+    fill(4*block); assert(SGSingTimelineVocals(cold,stamp(4*block),vocal)); // expired initial prefix
+    fill(6*block); assert(!SGSingTimelineVocals(cold,stamp(6*block),vocal)); // a later gap is still rejected
+    fill(5*block); assert(SGSingTimelineVocals(cold,stamp(5*block),vocal));
+    for (unsigned n = 6; n < 20; n++) { fill(n*block); assert(SGSingTimelineVocals(cold,stamp(n*block),vocal)); }
+    assert(SGSingTimelineRead(cold,output,block) == block && SGSingTimelineGetState(cold) == SGSingTimelineActive);
+    SGSingTimelineDestroy(cold);
     recoverWithoutChattering(false);
     recoverWithoutChattering(true);
     assert(!SGSingTimelineCreate(0, 1));
