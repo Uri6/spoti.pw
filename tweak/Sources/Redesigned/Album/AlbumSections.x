@@ -24,7 +24,14 @@ static BOOL isFooterContent(UIView *content) {
     %orig;
     UICollectionViewCell *cell = (UICollectionViewCell *)self;
     UIView *content = cell.contentView.subviews.firstObject;
-    if (!isFooterContent(content) || !SGRAlbumPageOf(cell)) return;
+    if (!SGRAlbumPageOf(cell)) return;
+    // Related releases are nested Element_List cells. Their ContentCardAlbum button is painted
+    // before attachment, so neither the repaint hook nor the outer cell's full-width cleanup sees
+    // it (device, 2026-09-24). Clear that backing only; the artwork, badges and placeholders are
+    // separate descendants and keep their own paint. Run on the card's own layout for reuse too.
+    UIView *card = SGRFindByIdentifier(content, @"Components.UI.ContentCardAlbum", NULL);
+    if (card && SGIsBaseSurface(card.layer.backgroundColor)) card.backgroundColor = UIColor.clearColor;
+    if (!isFooterContent(content)) return;
     for (NSString *identifier in @[@"Album.ConsumptionExperience", @"Album.Copyright"]) {
         UIView *metadata = SGRFindByIdentifier(content, identifier, NULL);
         SGForEachView(metadata, ^(UIView *view) {

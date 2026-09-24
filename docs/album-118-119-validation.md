@@ -1,8 +1,8 @@
 # Album credits and discovery — issues #118 and #119
 
 Branch: `codex/album-118-119-beta`, based on upstream `beta` at
-`49e02e204f397b1e4197876dd622d4ee1663188e`. Only the album issue commits are carried
-from the previous branch; its karaoke/immersive-lyrics base is not part of this branch history.
+`49e02e204f397b1e4197876dd622d4ee1663188e`. Only the two album issue commits are applied
+on top of that base; upstream beta's own lyrics and audio implementation stays unchanged.
 
 ## Behavior
 
@@ -18,6 +18,8 @@ from the previous branch; its karaoke/immersive-lyrics base is not part of this 
   titles cannot overlap the badges or menu. Mirror the arrangement for RTL. Restore presentation on reuse.
 - Restore the entire Spotify footer in its supplied order, including More by, Related Music Videos,
   You might also like, concerts and merch. Keep original links, carousels, spacer heights and copyright.
+- Clear the retained base surface on album discovery cards and plain playlist recommendation cells,
+  so captions and headings sit directly on the artwork field. Preserve artwork and badge paint.
 
 ## Design review
 
@@ -28,13 +30,32 @@ layout while browsing. Apple Design's simplicity/agency guidance supports restor
 The Liquid Glass skill keeps glass on navigation and controls, so no glass was added to list content.
 No new animation is introduced; the existing scrolling and transitions remain Spotify's.
 
+## Beta migration, 2026-09-28
+
+- Cherry-picked the issue implementation (`5b46aec`) and discovery-background follow-up (`604e4a5`)
+  as two commits directly above the requested upstream beta commit. The old branch is preserved.
+- Resolved conflicts while keeping beta's animated album covers, artist facepile, page reveal
+  readiness and updated harness dependencies. Artist metadata is handed to the credit policy
+  alongside beta's existing header setup; rows still mark the page's list ready.
+- The production diff from beta is limited to the album header/credit/section files and playlist
+  footer cleanup. No Shared, Lyrics, Player, Kit, signing or version files are changed by this port.
+- Full arm64 Theos package build and import-layer checks passed.
+- All 490 simulator checks passed again: 172 redesign, 146 native and 172 late-header checks.
+  Inspected the settled simulator screen: the artist face remains visible, redundant row credits
+  are hidden, explicit badges are inline and the uncredited guest retains its subtitle.
+- The real-iPhone checks below describe the original branch. This beta-based build has not been
+  installed or revalidated on the physical phone in this migration.
+
 ## Original-branch verification, 2026-09-24
 
 - Full arm64 Theos package build passed, including the import-layer check.
-- Simulator checks: 151 redesign, 125 native, and 151 with late header content. These exercise
+- Simulator checks: 172 redesign, 146 native, and 172 with late header content. These exercise
   the production Logos hooks and policy, including reuse, larger multiline text, RTL, page isolation,
   metadata arriving late, co-artists, guest credits, label-backed badges beside clipped subtitle containers,
   long titles, badge restoration, same-size cached-row reuse, footer self-sizing and accessibility visibility.
+  Paint checks cover nested album cards, artwork/badge preservation, page isolation, non-base colors,
+  and plain UIKit playlist recommendation cells on initial layout and repeated reloads, including
+  footer cells mounted outside the collection view data source.
 - The inherited immersive-lyrics state tests passed.
 - Installed the signed build on the connected iPhone 17 Pro. XCTest captured six positions on
   Hurry Up Tomorrow: repeated artist lines are hidden and explicit badges remain visible;
@@ -50,10 +71,14 @@ No new animation is introduced; the existing scrolling and transitions remain Sp
 - The real badge is the label-backed `Components.UI.ExplicitIcon` sibling of the subtitle.
   The fixture now models that structure; the subtitle wrapper stays concealed when Encore
   refreshes its internal label. The shipped build contains no temporary tree/trace instrumentation.
+- Background follow-up: verified transparent discovery-card captions on My Beautiful Dark Twisted
+  Fantasy and the recommendation heading on This Is Drake, before and after scrolling away and back.
+  The live hierarchy confirmed that Spotify mounts the playlist's plain footer cell directly in the
+  list without including it in `visibleCells`; cleanup now includes those mounted cells.
 
 The simulator exercises edge cases that the sampled album does not contain. This is a focused
 album-page check, not a new acceptance run for the inherited Sing audio engine.
 
 Reproduce the simulator checks with `THEOS=/path/to/theos python3 harness/album/test.py SIMULATOR_UDID`.
-Device screenshots are local build artifacts in `out/album-118-119/`; the source branch contains
+Original device screenshots remain in the original workspace's `out/album-118-119/`; the source branch contains
 no Spotify binary, model, provisioning data or personal screenshots.
