@@ -329,6 +329,11 @@ static UIImage *singGlyph(void) {
         // Thermal state and the playback route can change while the alert is on screen.
         if (SGSingCanRetry()) SGSingSetEnabled(YES);
     }]];
+    if (SGSingCurrentState() == SGSingFailed) [alert addAction:[UIAlertAction actionWithTitle:@"Turn off Sing" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        [weak finishedExplaining];
+        SGSingSetEnabled(NO);
+        weak.expanded = NO;
+    }]];
     _explaining = YES;
     if (_hold) _hold(YES);
     [presenter presentViewController:alert animated:YES completion:nil];

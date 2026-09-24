@@ -167,6 +167,12 @@ final class SingControlsUI: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 3), .completed)
         app.alerts.buttons["OK"].tap()
         XCTAssertFalse(app.alerts["Sing"].exists)
+        app.buttons["sing.microphone"].tap()
+        app.alerts.buttons["Turn off Sing"].tap()
+        let mic = app.buttons["sing.microphone"]
+        let off = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in mic.value as? String == "Off" }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [off], timeout: 3), .completed)
+        XCTAssertFalse(app.alerts["Sing"].exists)
         app.terminate()
     }
     @MainActor func testPreparingVocalLevelAndImmersiveHold() {

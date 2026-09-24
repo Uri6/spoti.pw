@@ -1,4 +1,5 @@
 #import "Shared/Audio/SGAudioPipeline.h"
+#import "Shared/Audio/SGAudioSourceQueue.h"
 #import "Core/SGLog.h"
 #import "Core/SGRebind.h"
 #import <pthread.h>
@@ -14,6 +15,7 @@ static _Atomic(AudioUnit) sourceUnit, outputUnit;
 static atomic_uint sourceBus, maximumFrames = 1024;
 static Float64 sourceTime; // sole render consumer
 static UInt32 sourceChannels;
+static struct { AudioUnit unit; AURenderCallbackStruct callback; } sourceCallbacks[8]; // protected by gate
 static OSStatus (*originalSet)(AudioUnit, AudioUnitPropertyID, AudioUnitScope, AudioUnitElement, const void *, UInt32);
 static OSStatus (*originalStart)(AudioUnit);
 static OSStatus (*originalDispose)(AudioComponentInstance);
@@ -96,6 +98,24 @@ static BOOL remoteIO(AudioUnit unit) {
     AudioComponentDescription desc = {0};
     return unit && AudioComponentGetDescription(AudioComponentInstanceGetComponent(unit), &desc) == noErr &&
         desc.componentType == kAudioUnitType_Output && desc.componentSubType == kAudioUnitSubType_RemoteIO;
+}
+
+UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames) {
+    if (!pulling || !sourceProcessor) return 0;
+    AudioUnit source = atomic_load(&sourceUnit);
+    for (unsigned i = 0; i < 8; i++)
+        if (sourceCallbacks[i].unit == source) return SGAudioSourceQueueFrames(sourceCallbacks[i].callback, maximumFrames);
+    return 0;
+}
+bool SGAudioPipelineSourceCanReadAhead(void) {
+    if (inRender) return false;
+    beginChange();
+    AudioUnit source = atomic_load(&sourceUnit);
+    bool supported = false;
+    for (unsigned i = 0; i < 8; i++)
+        if (sourceCallbacks[i].unit == source && source) supported = SGAudioSourceQueueSupported(sourceCallbacks[i].callback);
+    endChange();
+    return supported;
 }
 
 OSStatus SGAudioPipelinePull(UInt32 frames, AudioBufferList *data, const AudioTimeStamp *outputTime) {
@@ -293,6 +313,19 @@ static OSStatus setProperty(AudioUnit unit, AudioUnitPropertyID property, AudioU
     if (inRender) return kAudioUnitErr_CannotDoInCurrentContext;
     beginChange();
     OSStatus status = setPropertyWhileStopped(unit, property, scope, element, data, size);
+    if (!status && property == kAudioUnitProperty_SetRenderCallback && scope == kAudioUnitScope_Input &&
+        element == 0 && data && size >= sizeof(AURenderCallbackStruct)) {
+        AURenderCallbackStruct callback = *(const AURenderCallbackStruct *)data;
+        bool supported = SGAudioSourceQueueSupported(callback);
+        if (unit == atomic_load(&sourceUnit)) replaceSourceProcessor(NULL, NULL);
+        unsigned slot = 8;
+        for (unsigned i = 0; i < 8; i++) if (sourceCallbacks[i].unit == unit) { slot = i; break; }
+        if (supported && slot == 8) for (unsigned i = 0; i < 8; i++) if (!sourceCallbacks[i].unit) { slot = i; break; }
+        if (slot != 8) {
+            sourceCallbacks[slot].callback = callback;
+            sourceCallbacks[slot].unit = supported ? unit : NULL;
+        }
+    }
     endChange();
     return status;
 }
@@ -300,6 +333,7 @@ static OSStatus setProperty(AudioUnit unit, AudioUnitPropertyID property, AudioU
 static OSStatus dispose(AudioComponentInstance unit) {
     if (inRender) return kAudioUnitErr_CannotDoInCurrentContext;
     beginChange();
+    for (unsigned i = 0; i < 8; i++) if (sourceCallbacks[i].unit == unit) memset(&sourceCallbacks[i], 0, sizeof sourceCallbacks[i]);
     if (unit == atomic_load(&outputUnit)) {
         replaceSourceProcessor(NULL, NULL);
         AudioUnitRemoveRenderNotify(unit, rendered, unit);
@@ -318,6 +352,7 @@ static OSStatus dispose(AudioComponentInstance unit) {
 static void install(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        SGAudioSourceQueueInitialize();
         if (!SGRebindImport("AudioOutputUnitStart", start, (void **)&originalStart) || !originalStart) {
             originalStart = NULL;
             SGLog(@"audio pipeline: Spotify output import unavailable");

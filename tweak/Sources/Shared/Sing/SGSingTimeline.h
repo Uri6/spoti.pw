@@ -28,8 +28,9 @@ uint64_t SGSingTimelineReadyFrames(const SGSingTimeline *timeline);
 // still advances the worker cursor, but only its not-yet-audible suffix is retained.
 bool SGSingTimelineCapture(SGSingTimeline *timeline, SGAudioStamp stamp, const float *original);
 bool SGSingTimelineVocals(SGSingTimeline *timeline, SGAudioStamp stamp, const float *vocals);
-// Preparing returns zero: the caller emits explicit buffering silence and holds its clock.
+// Preparing emits available original PCM immediately and advances its audible clock.
 // Draining can return a prefix: pull the remaining frames directly only AFTER this prefix.
 // Active underrun ramps to aligned dry audio and keeps capturing while the worker catches up.
-// Recovery never rewinds/rebuffers; after eight seconds without recovery it drains and stops.
+// Recovery never rewinds/rebuffers and requires a full reserve before reducing vocals again.
+// Its eight-second budget resets only after eight uninterrupted seconds of active playback.
 uint32_t SGSingTimelineRead(SGSingTimeline *timeline, float *output, uint32_t frames);

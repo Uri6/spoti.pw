@@ -6,6 +6,7 @@ public typealias StemStatus = @convention(c) (UnsafeMutableRawPointer?, Int32) -
 
 #if canImport(CoreAI)
 import CoreAI
+#endif
 @available(iOS 27.0, macOS 27.0, *)
 private actor SGStemModels {
     static let shared = SGStemModels()
@@ -26,7 +27,13 @@ private actor SGStemModels {
             loadEpoch &+= 1
             loading = Task {
                 let hashes = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: URL(fileURLWithPath: hashesPath)))
-                return try await SGStemSeparator(modelURL: URL(fileURLWithPath: path), payloadHashes: hashes)
+                let modelURL = URL(fileURLWithPath: path)
+                let settingsURL = modelURL.deletingLastPathComponent().appendingPathComponent("Sing.plist")
+                let settings = (try? Data(contentsOf: settingsURL)).flatMap {
+                    try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any]
+                }
+                return try await SGStemSeparator(modelURL: modelURL, payloadHashes: hashes,
+                    preferForegroundGPU: settings?["Backend"] as? String == "CoreMLAdaptive")
             }
         }
         let task = loading!
@@ -120,7 +127,7 @@ private final class SGStemJob: @unchecked Sendable {
                         generation: origin[0], track: origin[1], format: UInt32(origin[3]))
                     let elapsed = started.duration(to: clock.now).components
                     let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-                    if windows < 3 || seconds > 0.5 {
+                    if windows < 3 || windows % 20 == 0 || seconds > 0.5 {
                         NSLog("[spotifyglass] Sing inference %d: %.3f s, thermal %ld", windows, seconds,
                               ProcessInfo.processInfo.thermalState.rawValue)
                     }
@@ -149,29 +156,23 @@ private final class SGStemJob: @unchecked Sendable {
         status(context, 3)
     }
 }
-#endif
-
 @_cdecl("SGStemWorkerStart")
 public func sgStemWorkerStart(_ context: UnsafeMutableRawPointer?, _ path: UnsafePointer<CChar>?, _ hashes: UnsafePointer<CChar>?, _ hopFrames: UInt32,
                        _ read: StemRead?, _ write: StemWrite?, _ status: StemStatus?) -> UnsafeMutableRawPointer? {
-    #if canImport(CoreAI)
     if #available(iOS 27.0, macOS 27.0, *), let path, let hashes, let read, let write, let status {
         let job = SGStemJob(context: context, read: read, write: write, status: status)
         let modelPath = String(cString: path), hashesPath = String(cString: hashes)
         job.task = Task.detached(priority: .userInitiated) { await job.run(path: modelPath, hashesPath: hashesPath, hop: Int(hopFrames)) }
         return Unmanaged.passRetained(job).toOpaque()
     }
-    #endif
     return nil
 }
 
 @_cdecl("SGStemWorkerCancel")
 public func sgStemWorkerCancel(_ handle: UnsafeMutableRawPointer?, _ unload: Int32) {
-    #if canImport(CoreAI)
     if #available(iOS 27.0, macOS 27.0, *), let handle {
         Unmanaged<SGStemJob>.fromOpaque(handle).takeRetainedValue().cancel(unload: unload != 0)
     }
-    #endif
 }
 
 @_cdecl("SGStemArchitectureMatches")
@@ -186,9 +187,7 @@ public func sgStemArchitectureMatches(_ architecture: UnsafePointer<CChar>?) -> 
 
 @_cdecl("SGStemWorkerPurge")
 public func sgStemWorkerPurge() {
-    #if canImport(CoreAI)
     if #available(iOS 27.0, macOS 27.0, *) {
         Task { await SGStemModels.shared.purge() }
     }
-    #endif
 }

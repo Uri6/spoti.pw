@@ -59,7 +59,7 @@ double SGSingSourcePosition(SPTPlayerState *state) {
         [state.track.trackTitle isEqualToString:info[MPMediaItemPropertyTitle]] && SGSingPosition(state, &position)) {
         NSMutableDictionary *shown = [info mutableCopy];
         shown[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @(position);
-        shown[MPNowPlayingInfoPropertyPlaybackRate] = @(state.isPaused || SGSingCurrentState() == SGSingPreparing ? 0 : SGPlayerSpeed());
+        shown[MPNowPlayingInfoPropertyPlaybackRate] = @(state.isPaused || !state.isPlaying ? 0 : SGPlayerSpeed());
         %orig(shown);
     } else %orig;
 }

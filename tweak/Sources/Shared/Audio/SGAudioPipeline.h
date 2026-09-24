@@ -31,6 +31,10 @@ OSStatus SGAudioPipelinePull(UInt32 frames, AudioBufferList *data, const AudioTi
 typedef OSStatus (*SGAudioSourceProcessor)(void *context, UInt32 frames, AudioBufferList *data,
                                           const AudioTimeStamp *time);
 OSStatus SGAudioPipelinePullOriginal(UInt32 frames, AudioBufferList *data, const AudioTimeStamp *time);
+// Render endpoint only: verified decoded prefix, capped at maximumFrames, before a source event.
+// Zero keeps normal pulls and lets retained original audio drain. Never an extra source consumer.
+UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames);
+bool SGAudioPipelineSourceCanReadAhead(void); // off-render; exact supported source callback
 // Off-render only. Waits for an active callback to leave before replacing the context. After this
 // returns, the old context is no longer used by the pipeline (its worker may still own it).
 bool SGAudioPipelineSetSourceProcessor(SGAudioSourceProcessor processor, void *context);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the production Core AI worker at PCM cadence, including disable during inference (macOS 27)."""
+"""Run the production worker at PCM cadence, including disable during inference (macOS 27)."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -18,7 +18,7 @@ flags = ["-sanitize=thread"] if args.tsan else []
 subprocess.run(["xcrun", "swiftc", "-O", "-strict-concurrency=complete", "-warnings-as-errors",
                 "-target", "arm64-apple-macos27.0", "-emit-library", *flags,
                 *(str(src / "Shared/Sing" / name) for name in
-                  ["SGStemSeparator.swift", "SGStemWindowProcessor.swift", "SGStemWorker.swift"]),
+                  ["SGStemCoreMLSeparator.swift", "SGStemSeparator.swift", "SGStemWindowProcessor.swift", "SGStemWorker.swift"]),
                 "-o", str(out / "libStemWorker.dylib")], check=True)
 cflags = ["-fsanitize=thread"] if args.tsan else ["-fsanitize=address,undefined"]
 subprocess.run(["xcrun", "clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-g", "-O1", *cflags,
@@ -30,4 +30,5 @@ subprocess.run(["xcrun", "clang", "-std=c11", "-Wall", "-Wextra", "-Werror", "-g
 command = [str(out / "worker-test"), str(args.model.resolve()), str(args.hashes.resolve()), str(args.golden_raw.resolve())]
 subprocess.run(command, check=True)
 subprocess.run([*command, "205"], check=True)
-subprocess.run([*command, "1200", "stall"], check=True)
+subprocess.run([*command, "2000", "stall"], check=True)
+subprocess.run([*command, "--cancel-loading"], check=True)

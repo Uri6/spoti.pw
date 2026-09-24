@@ -18,3 +18,8 @@ with tempfile.TemporaryDirectory(prefix="spoti-audio-") as directory:
                     "-framework", "Foundation", "-framework", "AudioToolbox",
                     "-o", str(output)], check=True)
     subprocess.run([str(output)], check=True)
+    queue = Path(directory) / "source-queue-test"
+    subprocess.run(["xcrun", "clang", "-fobjc-arc", "-g", "-O1", "-Wall", "-Werror",
+                    f"-fsanitize={sanitizer}", "-I", str(src), str(here / "source_queue_test.m"),
+                    "-framework", "Foundation", "-framework", "AudioToolbox", "-o", str(queue)], check=True)
+    subprocess.run([str(queue)], check=True)

@@ -1,6 +1,8 @@
 // Standalone model measurements on iPhone. This does not run Spotify or validate live audio.
 import UIKit
+#if canImport(CoreAI)
 import CoreAI
+#endif
 import Darwin
 import os
 
@@ -79,12 +81,16 @@ enum Benchmark {
         guard initialThermal < 2 else { return "Thermal hold: device is already Serious or Critical before loading the model." }
         let root = Bundle.main.bundleURL.appendingPathComponent("Assets")
         let hashes = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: root.appendingPathComponent("hashes.json")))
-        let metadata = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("separator.aimodelc/metadata.json"))) as? [String: Any]
-        let sourceHash = metadata?["sourceHash"] as? String ?? "unknown"
+        let cpu = FileManager.default.fileExists(atPath: root.appendingPathComponent("separator.mlmodelc").path)
+        let modelURL = root.appendingPathComponent(cpu ? "separator.mlmodelc" : "separator.aimodelc")
+        let sourceHash = hashes[cpu ? "model.mil" : "main.hash"] ?? "unknown"
         let requestedHop = UserDefaults.standard.object(forKey: "hopSeconds") == nil ? 1.5 : UserDefaults.standard.double(forKey: "hopSeconds")
         guard requestedHop.isFinite, requestedHop >= 0.5, requestedHop <= 2 else { throw SGStemError.invalidInput }
         let clock = ContinuousClock(), start = clock.now
-        let separator = try await SGStemSeparator(modelURL: root.appendingPathComponent("separator.aimodelc"), payloadHashes: hashes)
+        let preferForegroundGPU = cpu && UserDefaults.standard.bool(forKey: "foregroundGPU")
+        let backend = cpu ? (preferForegroundGPU ? "CoreMLAdaptive" : "CoreMLCPU") : "CoreAI"
+        let separator = try await SGStemSeparator(modelURL: modelURL, payloadHashes: hashes,
+            preferForegroundGPU: preferForegroundGPU)
         let load = seconds(clock.now - start)
         let minimumMemoryBefore = os_proc_available_memory()
         var minimumMemory = minimumMemoryBefore
@@ -122,7 +128,7 @@ enum Benchmark {
             NSLog("SING_DEVICE run %d: %.3fs cosine %.7f", i, times.last!, cosine)
             if i >= nextReport {
                 let progress: [String: Any] = ["status": status, "completedWindows": i + 1,
-                    "hopSeconds": requestedHop, "modelSourceHash": sourceHash,
+                    "hopSeconds": requestedHop, "modelSourceHash": sourceHash, "backend": backend,
                     "elapsedSeconds": seconds(clock.now - started), "lastInferenceSeconds": times.last!,
                     "worstWarmInferenceSeconds": times.dropFirst().max()!, "missedHopDeadlines": missedDeadlines,
                     "minimumAvailableMemoryBytes": minimumMemory,
@@ -135,8 +141,19 @@ enum Benchmark {
             if i == windows - 1 { status = "complete" }
         }
         var usage = rusage(); getrusage(RUSAGE_SELF, &usage)
-        let report: [String: Any] = ["architecture": AIModel.deviceArchitectureName, "os": ProcessInfo.processInfo.operatingSystemVersionString,
-            "hopSeconds": requestedHop, "modelSourceHash": sourceHash,
+        #if canImport(CoreAI)
+        let architecture = AIModel.deviceArchitectureName
+        #else
+        let architecture = "unavailable"
+        #endif
+        #if targetEnvironment(simulator)
+        let platform = "iOS Simulator"
+        #else
+        let platform = "iOS device"
+        #endif
+        let report: [String: Any] = ["architecture": architecture, "platform": platform,
+            "os": ProcessInfo.processInfo.operatingSystemVersionString,
+            "hopSeconds": requestedHop, "modelSourceHash": sourceHash, "backend": backend,
             "status": status, "scope": "model-only; not Spotify playback", "completedWindows": times.count,
             "elapsedSeconds": seconds(clock.now - started), "missedHopDeadlines": missedDeadlines,
             "minimumAvailableMemoryBytes": minimumMemory,

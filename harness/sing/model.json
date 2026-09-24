@@ -118,5 +118,31 @@
     "sourceHash": "E3D37A687A99632A56CE933CDAEFBEAEB8D8D936EE58A16B6DE0CC36C3B141A3",
     "windowFrames": 88200,
     "overlap": 0.25
+  },
+  "cpuProfile": {
+    "backend": "CoreMLCPU",
+    "precision": "MixedFloat16Float32",
+    "float32Operations": [
+      "reduce_l2_norm",
+      "real_div",
+      "maximum",
+      "scaled_dot_product_attention",
+      "softmax",
+      "matmul",
+      "tile"
+    ],
+    "coremltoolsVersion": "9.1.dev1",
+    "torchVersion": "2.9.0",
+    "windowFrames": 88200,
+    "overlap": 0.25,
+    "deviceValidated": false,
+    "payloadHashes": {
+      "model.mil": "b658d3105c88890bfbef55fdc3c7cc3f89d2cdf8981a7a436e84b3c632cd66b0",
+      "weights/weight.bin": "970a99fb4b15724bf76d2918ceb177df592c69265d3e2fabaab6e5ba72738e62"
+    },
+    "referencePayloadHashes": {
+      "model.mil": "79b83bfe1d161e466562dbd49bb6e1c07806dd4a565d52935b0555dade5f6cde",
+      "weights/weight.bin": "e20adb85d15d0a9176657eae540078f750047abcdf34e7aa6f1a1ded8b1891f8"
+    }
   }
 }

@@ -104,8 +104,10 @@ Shared:
     Audio/        the mixer connection and RemoteIO render notify owned once (SGAudioPipeline.x): fixed processor slots
                   run speed and pitch, JamesDSP, then music haptics. Graph changes and disposal exclude active pulls;
                   the render thread never waits for them. Unsupported formats retain Spotify's connection. The PCM
-                  packet queue is bounded and generation-stamped. Boundary tests are in harness/audio/ and harness/sing/
-    Sing/         the local Core AI separator, source-domain audio adapter, worker and player lifecycle. The audible
+                  packet queue is bounded and generation-stamped. Sing's source read-ahead reads guarded queue metadata
+                  for the verified Spotify binary; PCM still comes through its AudioUnit. Boundary tests are in harness/audio/ and harness/sing/
+    Sing/         the local Core AI / Core ML separator, source-domain audio adapter, worker and player lifecycle. Core ML
+                  can use the GPU in the foreground and its warm CPU model in the background. The audible
                   clock follows emitted source samples while delayed audio drains. Redesigned/Lyrics owns the
                   Now Playing microphone control; the model is an optional local Sing.bundle (harness/sing/)
     Player/       the player's open and close announced (PlayerEvents.x), what the player is doing read through

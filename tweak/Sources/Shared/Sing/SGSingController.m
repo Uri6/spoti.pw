@@ -38,6 +38,7 @@ static BOOL sg_configured;
 @property (nonatomic) SGSingState state;
 @property (nonatomic) NSString *explanation;
 @property (nonatomic) NSString *model, *hashes;
+@property (nonatomic) BOOL usesCoreML;
 @property (nonatomic) uint32_t window;
 @property (nonatomic) uint64_t generation;
 @property (nonatomic) float level, reduced;
@@ -94,10 +95,13 @@ static void workerStatus(void *context, int32_t status) {
     NSBundle *bundle = [NSBundle bundleWithPath:[NSBundle.mainBundle pathForResource:@"Sing" ofType:@"bundle"]];
     NSDictionary *manifest = [NSDictionary dictionaryWithContentsOfFile:[bundle pathForResource:@"Sing" ofType:@"plist"]];
     NSString *architecture = manifest[@"Architecture"];
+    NSString *backend = manifest[@"Backend"];
+    _usesCoreML = [backend isEqualToString:@"CoreMLCPU"] || [backend isEqualToString:@"CoreMLAdaptive"];
     _window = [manifest[@"WindowFrames"] unsignedIntValue];
-    _model = [bundle pathForResource:@"separator" ofType:@"aimodelc"];
+    _model = [bundle pathForResource:@"separator" ofType:_usesCoreML ? @"mlmodelc" : @"aimodelc"];
     _hashes = [bundle pathForResource:@"hashes" ofType:@"json"];
-    if (!architecture.length || !SGStemArchitectureMatches(architecture.UTF8String) || !_model || !_hashes || _window != 88200) {
+    if ((backend && !_usesCoreML && ![backend isEqualToString:@"CoreAI"]) || !architecture.length ||
+        !SGStemArchitectureMatches(architecture.UTF8String) || !_model || !_hashes || _window != 88200) {
         _state = SGSingUnavailable;
         _explanation = @"Sing requires iOS 27, supported hardware, and the matching local voice model in this build.";
     }
@@ -120,7 +124,7 @@ static void workerStatus(void *context, int32_t status) {
 }
 - (NSString *)restriction {
     if (_interrupted) return @"Sing will be ready when the audio interruption ends.";
-    if (!_active && !SGSingBackgroundAllowed()) return SGSingBackgroundExplanation();
+    if (!_active && !_usesCoreML && !SGSingBackgroundAllowed()) return SGSingBackgroundExplanation();
     if (NSProcessInfo.processInfo.thermalState >= NSProcessInfoThermalStateSerious) return @"Let your iPhone cool down before using Sing again.";
     for (AVAudioSessionPortDescription *port in AVAudioSession.sharedInstance.currentRoute.outputs)
         if ([port.portType isEqualToString:AVAudioSessionPortAirPlay]) return @"Sing is unavailable over AirPlay.";
@@ -200,7 +204,7 @@ static void workerStatus(void *context, int32_t status) {
         }
         if (now < session.attachDeadline) { [self publish:SGSingPreparing explanation:nil]; return; }
         _blockedTrack = session.track; [self stop:YES unload:NO];
-        [self publish:SGSingFailed explanation:@"Sing needs local 44.1 kHz stereo playback. Start a song on this iPhone and try again."];
+        [self publish:SGSingFailed explanation:@"Sing needs a supported Spotify audio source with local 44.1 kHz stereo playback. Start a song on this iPhone and try again."];
     }
 }
 - (void)workerStatus:(int32_t)status session:(SGSingSession *)session {
@@ -250,7 +254,7 @@ static void workerStatus(void *context, int32_t status) {
             [self publish:SGSingPreparing explanation:nil];
         } else if (session.attached) {
             CFTimeInterval now = CACurrentMediaTime();
-            if (now - _lastBackgroundProgress >= 1) {
+            if (!_usesCoreML && now - _lastBackgroundProgress >= 1) {
                 _lastBackgroundProgress = now;
                 double remaining = fmax(0, state.duration - SGSingSourcePosition(state));
                 uint64_t completed = SGSingStreamProcessed(stream(session));
@@ -305,12 +309,15 @@ static void workerStatus(void *context, int32_t status) {
 - (void)background:(NSNotification *)note {
     SGLog(@"Sing lifecycle inactive: %@, app state %ld", note.name, (long)UIApplication.sharedApplication.applicationState);
     _active = NO;
-    if (!SGSingBackgroundAllowed()) {
+    // Core ML uses its warm CPU model while inactive, under Spotify's audio background
+    // mode. Optional GPU acceleration is limited to foreground predictions.
+    if (!_usesCoreML && !SGSingBackgroundAllowed()) {
         [self stop:NO unload:YES];
         if (_state != SGSingUnavailable) [self publish:_session ? SGSingDraining : SGSingIdle explanation:nil];
     }
 }
 - (void)requestBackground {
+    if (_usesCoreML) return;
     __weak typeof(self) weak = self;
     SGSingBackgroundStart(^(BOOL expired) {
         typeof(self) self = weak;

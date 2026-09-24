@@ -13,7 +13,7 @@ struct Benchmark {
         }
     }
     static func main() async throws {
-        guard CommandLine.arguments.count >= 3 else { fatalError("benchmark <assets> <report.json> [hashes.json] [model name]") }
+        guard CommandLine.arguments.count >= 3 else { fatalError("benchmark <assets> <report.json> [hashes.json] [model name] [--foreground-gpu]") }
         let root = URL(fileURLWithPath: CommandLine.arguments[1])
         let clock = ContinuousClock(), started = clock.now
         var hashes = [
@@ -24,7 +24,9 @@ struct Benchmark {
                 URL(fileURLWithPath: CommandLine.arguments[3])))
         }
         let name = CommandLine.arguments.count > 4 ? CommandLine.arguments[4] : "mbr_full_fp16.aimodel"
-        let separator = try await SGStemSeparator(modelURL: root.appendingPathComponent(name), payloadHashes: hashes)
+        let preferForegroundGPU = CommandLine.arguments.contains("--foreground-gpu")
+        let separator = try await SGStemSeparator(modelURL: root.appendingPathComponent(name), payloadHashes: hashes,
+            preferForegroundGPU: preferForegroundGPU)
         let load = seconds(clock.now - started)
         let samples = separator.chunkSamples
         let raw = try floats(root.appendingPathComponent("golden_raw.f32"))
@@ -48,16 +50,48 @@ struct Benchmark {
             print("run \(run): \(times.last!) s, cosine \(cosine), rms ratio \(rmsRatio)")
             guard cosine >= 0.999, abs(rmsRatio - 1) < 0.01 else { fatalError("golden parity failed") }
         }
+        // Precision changes must also handle normalization near zero. A music-only golden
+        // check missed a half-precision normalization denominator that became zero on silence.
+        var impulse = [Float](repeating: 0, count: input.count)
+        impulse[0] = 1; impulse[impulse.count - 1] = -1
+        var leftOnly = input
+        for n in 0..<samples { leftOnly[n * 2 + 1] = 0 }
+        let edgeInputs: [(String, [Float])] = [
+            ("silence", [Float](repeating: 0, count: input.count)),
+            ("quiet", input.map { $0 * 1e-6 }),
+            ("nearZero", input.map { $0 * 1e-12 }),
+            ("leftOnly", leftOnly), ("boundaryImpulses", impulse)
+        ]
+        var edgePeaks: [String: Float] = [:]
+        for (name, pcm) in edgeInputs {
+            let output = try await separator.vocals(for: pcm)
+            guard output.count == pcm.count, output.allSatisfy(\.isFinite) else {
+                fatalError("non-finite or malformed \(name) output")
+            }
+            let peak = output.map(abs).max()!
+            if name == "silence" { precondition(peak == 0, "silence generated audio") }
+            edgePeaks[name] = peak
+        }
         var usage = rusage(); getrusage(RUSAGE_SELF, &usage)
         let warm = times.dropFirst().max()!
         let collect = Double(samples) / 44100
+        #if targetEnvironment(simulator)
+        let platform = "iOS Simulator"
+        #elseif os(iOS)
+        let platform = "iOS device"
+        #else
+        let platform = "macOS"
+        #endif
         let report: [String: Any] = [
-            "platform": "macOS", "os": ProcessInfo.processInfo.operatingSystemVersionString,
+            "foregroundGPUEnabled": preferForegroundGPU, "platform": platform, "os": ProcessInfo.processInfo.operatingSystemVersionString,
             "chunkSamples": samples, "chunkSeconds": collect, "loadSeconds": load,
             "inferenceSeconds": times, "cosine": cosine, "rmsRatio": rmsRatio,
+            "edgeInputPeaks": edgePeaks,
             "peakResidentBytes": usage.ru_maxrss,
             "causalActivationLowerBoundSeconds": collect + warm,
-            "meetsThreeSecondActivation": collect + warm <= 3,
+            // A lower bound excludes model loading, the ready-vocal reserve and actual source
+            // availability. Being below three seconds is not an activation acceptance result.
+            "activationLowerBoundUnderThreeSeconds": collect + warm <= 3,
             "liveValidated": false
         ]
         let json = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])

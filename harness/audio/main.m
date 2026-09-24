@@ -87,6 +87,13 @@ BOOL SGRebindImport(const char *symbol, void *replacement, void **original) {
     return YES;
 }
 
+// Decoder metadata is a separate guarded-reader test. Here control the spare PCM budget.
+static OSStatus nativeSource(void *c, AudioUnitRenderActionFlags *f, const AudioTimeStamp *t,
+                             UInt32 b, UInt32 n, AudioBufferList *d) { return noErr; }
+void SGAudioSourceQueueInitialize(void) {}
+bool SGAudioSourceQueueSupported(AURenderCallbackStruct callback) { return callback.inputProc == nativeSource; }
+UInt32 SGAudioSourceQueueFrames(AURenderCallbackStruct callback, UInt32 maximumFrames) { return SGAudioSourceQueueSupported(callback) ? MIN(44100, maximumFrames) : 0; }
+
 #include "Shared/Audio/SGAudioPipeline.x"
 #include "Shared/Sing/SGSingAudio.h"
 
@@ -135,8 +142,17 @@ int main(void) {
         assert(SGAudioPipelineRegister(SGAudioStageJamesDSP, &b));
         AudioStreamBasicDescription format = {44100, kAudioFormatLinearPCM,
             kAudioFormatFlagsNativeFloatPacked | kAudioFormatFlagIsNonInterleaved, 4, 1, 4, 2, 32, 0};
+        Unit unrelated[12] = {0};
+        AURenderCallbackStruct other = {feed, NULL};
+        for (unsigned i = 0; i < 12; i++)
+            assert(!setProperty(unit(&unrelated[i]), kAudioUnitProperty_SetRenderCallback,
+                kAudioUnitScope_Input, 0, &other, sizeof other));
         Unit source = {.format = format, .limit = 256}, output = {.output = true, .format = format, .limit = 1024};
+        AURenderCallbackStruct native = {nativeSource, &source};
+        assert(!setProperty(unit(&source), kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &native, sizeof native));
         connect(&source, &output, 7);
+        assert(SGAudioPipelineSourceCanReadAhead());
+        assert(SGAudioPipelineSourceAheadFrames(44100) == 0); // never expose queue metadata off-render
         assert(SGAudioPipelineTapped());
         start(unit(&output));
         reentrantChange = true;
@@ -164,26 +180,31 @@ int main(void) {
         float input[2048];
         static float vocal[88200];
         SGAudioStamp packet;
-        for (unsigned i = 0; i < 100; i++) {
-            assert(render(&output, 882) == noErr && pcm[0][0] == 0);
-            assert(SGSingStreamReadInput(stream, &packet, input));
-            assert(packet.frames == 882 && packet.sourceFrame == i*882 && input[0] == .25f);
-            assert(SGSingAudioClock(2, &audible) && audible == 12.0);
+        uint64_t captured = 0, nextWindow = 0;
+        for (unsigned i = 0; i < 88200; i++) vocal[i] = .1f;
+        for (unsigned i = 0; i < 220; i++) {
+            assert(render(&output, 882) == noErr);
+            if (i < 100) assert(pcm[0][0] == .25f); // no preparation silence
+            while (SGSingStreamReadInput(stream, &packet, input)) {
+                assert(packet.sourceFrame == captured && input[0] == .25f);
+                captured += packet.frames;
+            }
+            while (captured >= nextWindow + 88200) {
+                assert(SGSingStreamWriteVocals(stream, (SGAudioStamp){1,2,nextWindow,3,44100}, vocal));
+                nextWindow += 44100;
+            }
+            assert(SGSingAudioClock(2, &audible) && fabs(audible - (12.0 + (i+1)*.02)) < 1e-6);
             assert(!SGSingAudioClock(9, &audible));
         }
-        for (unsigned i = 0; i < 88200; i++) vocal[i] = .1f;
-        assert(SGSingStreamWriteVocals(stream, (SGAudioStamp){1,2,0,3,44100}, vocal));
-        for (unsigned i = 0; i < 50; i++) assert(render(&output, 882) == noErr && pcm[0][0] == 0);
-        assert(SGSingStreamWriteVocals(stream, (SGAudioStamp){1,2,44100,3,44100}, vocal));
-        assert(render(&output, 882) == noErr && fabsf(pcm[0][0] - .154f) < 1e-6); // 20% perceptual vocal gain
-        assert(SGSingAudioClock(2, &audible) && fabs(audible - 12.02) < 1e-6);
+        assert(SGSingStreamState(stream) == SGSingTimelineActive);
+        assert(fabsf(pcm[0][0] - .154f) < 1e-6); // 20% perceptual vocal gain
         SGSingStreamBypass(stream);
-        for (unsigned i = 0; i < 160; i++) {
+        for (unsigned i = 0; i < 260; i++) {
             assert(render(&output, 882) == noErr);
             if (i > 6) assert(pcm[0][0] == .25f);
         }
         assert(SGSingStreamState(stream) == SGSingTimelineIdle);
-        assert(SGSingAudioClock(2, &audible) && fabs(audible - 15.22) < 1e-6);
+        assert(SGSingAudioClock(2, &audible) && fabs(audible - 21.6) < 1e-6);
         SGSingAudioInvalidate();
         unsigned stalePulls = source.renders;
         uint64_t staleFrames = source.frames;
@@ -192,6 +213,11 @@ int main(void) {
         assert(!SGSingAudioClock(2, &audible));
         SGSingAudioDetach(sing);
         SGSingAudioDestroy(sing);
+        assert(SGAudioPipelineSetSourceProcessor(separate, &stageCalls));
+        assert(!setProperty(unit(&source), kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &other, sizeof other));
+        assert(!SGAudioPipelineSourceProcessorAttached(&stageCalls) && !SGAudioPipelineSourceCanReadAhead());
+        assert(!setProperty(unit(&source), kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &native, sizeof native));
+        assert(SGAudioPipelineSourceCanReadAhead());
         SGAudioPipelineSetPullProcessor(handledError);
         renderError = -123;
         unsigned before = source.renders;

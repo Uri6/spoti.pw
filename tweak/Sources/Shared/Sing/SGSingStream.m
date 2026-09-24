@@ -26,8 +26,8 @@ SGSingStream *SGSingStreamCreate(SGAudioStamp origin, uint32_t window, uint32_t 
     s->presented = origin.sourceFrame; atomic_store(&s->publishedPresented, origin.sourceFrame);
     s->origin = origin; s->captured = origin.sourceFrame; s->window = window; s->hop = hop;
     // Start with a full window of ready vocals (two completed hops). The first inference
-    // duration cannot predict the next GPU scheduling delay. Less overlap reduces repeated
-    // inference work; the reserve still covers a full future hop before playback begins.
+    // duration cannot predict the next worker scheduling delay. Less overlap reduces repeated
+    // inference work; the reserve still covers a full future hop before vocal reduction begins.
     s->timeline = SGSingTimelineCreate(352800, window);
     s->input = SGAudioRingCreate(1024, SGSingStreamPacketFrames, 2);
     s->output = SGAudioRingCreate(8, hop, 2);
@@ -82,7 +82,7 @@ bool SGSingStreamWriteVocals(SGSingStream *s, SGAudioStamp stamp, const float *p
     atomic_store(&s->processedFrames, stamp.sourceFrame + stamp.frames - s->origin.sourceFrame);
     return true;
 }
-int32_t SGSingStreamRender(SGSingStream *s, uint32_t frames, float *pcm, SGSingSourceRead source, void *context) {
+int32_t SGSingStreamRender(SGSingStream *s, uint32_t frames, float *pcm, SGSingSourceRead source, void *context, uint32_t available) {
     if (!s || !pcm || !source || !frames || frames > SGSingStreamMaximumRenderFrames) return -1;
     memset(pcm, 0, (size_t)frames * 2 * sizeof(float));
     if (atomic_load(&s->paused)) return 0;
@@ -95,11 +95,20 @@ int32_t SGSingStreamRender(SGSingStream *s, uint32_t frames, float *pcm, SGSingS
     if (SGAudioRingRead(s->output, &result, s->vocals)) SGSingTimelineVocals(s->timeline, result, s->vocals);
     uint32_t writable = SGSingTimelineWritable(s->timeline);
     SGSingTimelineState captureState = SGSingTimelineGetState(s->timeline);
+    uint64_t queued = SGSingTimelineQueued(s->timeline);
+    uint32_t target = s->window * 2 + s->hop;
+    uint32_t minimum = queued < frames ? frames - (uint32_t)queued : 0;
+    uint32_t wanted = frames;
+    if (queued < target) wanted += target - queued < frames ? target - (uint32_t)queued : frames;
+    uint32_t spare = available > 5292 ? available - 5292 : 0;
+    if (wanted > spare) wanted = spare;
+    if (wanted < minimum) wanted = minimum;
+    if (wanted > writable) wanted = writable;
     if ((captureState == SGSingTimelinePreparing || captureState == SGSingTimelineActive || captureState == SGSingTimelineRecovering) && writable < frames) {
         bypass(s, SGSingStopCapacity); SGSingTimelineBypass(s->timeline);
     } else if (writable) {
-        for (uint32_t done = 0; done < frames;) {
-            uint32_t count = frames - done;
+        for (uint32_t done = 0; done < wanted;) {
+            uint32_t count = wanted - done;
             if (count > SGSingStreamPacketFrames) count = SGSingStreamPacketFrames;
             int32_t error = source(context, count, s->source);
             if (error) {

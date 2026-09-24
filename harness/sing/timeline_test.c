@@ -19,19 +19,85 @@ static void verify(uint64_t at, uint32_t count, float gain) {
         assert(fabsf(output[i*2] + output[i*2+1]) < 1e-6);
     }
 }
+static void recoverWithoutChattering(bool sustained) {
+    SGSingTimeline *t = SGSingTimelineCreate(44100 * 8, 88200);
+    SGSingTimelineBegin(t, stamp(0), .2f);
+    uint64_t captured = 0, processed = 0, consumed = 0;
+    for (; captured < 44100 * 6; captured += block) {
+        fill(captured); assert(SGSingTimelineCapture(t, stamp(captured), dry));
+    }
+    for (; processed < 44100 * 3; processed += block) {
+        fill(processed); assert(SGSingTimelineVocals(t, stamp(processed), vocal));
+    }
+    // Every callback emits the next original frame, including recovery and a final drain.
+    #define ADVANCE() do { \
+        if (SGSingTimelineWritable(t) >= block) { \
+            fill(captured); assert(SGSingTimelineCapture(t, stamp(captured), dry)); captured += block; \
+        } \
+        assert(SGSingTimelineRead(t, output, block) == block); \
+        for (unsigned n = 0; n < block; n++) { \
+            float ratio = output[n*2] / signal(consumed+n); \
+            assert(ratio >= .616f - 1e-5 && ratio <= 1 + 1e-5); \
+            assert(fabsf(output[n*2] + output[n*2+1]) < 1e-6); \
+        } \
+        consumed += block; \
+    } while (0)
+    while (SGSingTimelineGetState(t) != SGSingTimelineRecovering) ADVANCE();
+    uint64_t firstRecovery = consumed;
+    for (; processed < consumed + 44100; processed += block) {
+        fill(processed); assert(SGSingTimelineVocals(t, stamp(processed), vocal));
+    }
+    ADVANCE();
+    // One late hop used to re-enable reduction with only a second of coverage. Another
+    // slow inference would bring the original vocals back almost immediately.
+    assert(SGSingTimelineGetState(t) == SGSingTimelineRecovering);
+    for (; processed < consumed + 88200; processed += block) {
+        fill(processed); assert(SGSingTimelineVocals(t, stamp(processed), vocal));
+    }
+    ADVANCE();
+    assert(SGSingTimelineGetState(t) == SGSingTimelineActive);
+    if (sustained) {
+        uint64_t healthyUntil = consumed + SGSingRecoveryLimitFrames + block * 2;
+        while (consumed < healthyUntil) {
+            for (; processed < captured; processed += block) {
+                fill(processed); assert(SGSingTimelineVocals(t, stamp(processed), vocal));
+            }
+            ADVANCE();
+            assert(SGSingTimelineGetState(t) == SGSingTimelineActive);
+        }
+    }
+    while (SGSingTimelineGetState(t) != SGSingTimelineRecovering) ADVANCE();
+    if (sustained) {
+        // A genuinely healthy interval earns a new budget for a later, unrelated stall.
+        firstRecovery = consumed;
+        ADVANCE();
+        assert(SGSingTimelineGetState(t) == SGSingTimelineRecovering);
+    }
+    // A brief recovery is not a healthy run and must not reset the outage deadline.
+    while (consumed < firstRecovery + SGSingRecoveryLimitFrames + block) ADVANCE();
+    assert(SGSingTimelineGetState(t) == SGSingTimelineDraining);
+    SGSingTimelineDestroy(t);
+    #undef ADVANCE
+}
 int main(void) {
+    recoverWithoutChattering(false);
+    recoverWithoutChattering(true);
     assert(!SGSingTimelineCreate(0, 1));
     SGSingTimeline *t = SGSingTimelineCreate(capacity, block*2);
     assert(t);
     SGSingTimelineBegin(t, stamp(0), 0);
     uint64_t captured = 0, consumed = 0;
-    // Two seconds of deliberate buffering; none of this PCM has been audible yet.
+    // Capture ahead while original audio remains continuous from the first callback.
     for (unsigned i = 0; i < 200; i++) {
-        fill(captured);
-        assert(SGSingTimelineCapture(t, stamp(captured), dry));
-        captured += block;
-        assert(!SGSingTimelineRead(t, output, block));
-        assert(SGSingTimelineConsumed(t) == 0);
+        for (unsigned extra = 0; extra < 2; extra++) {
+            fill(captured);
+            assert(SGSingTimelineCapture(t, stamp(captured), dry));
+            captured += block;
+        }
+        assert(SGSingTimelineRead(t, output, block) == block);
+        verify(consumed, block, 1);
+        consumed += block;
+        assert(SGSingTimelineConsumed(t) == consumed);
     }
     for (uint64_t at = 0; at < captured; at += block) {
         fill(at); assert(SGSingTimelineVocals(t, stamp(at), vocal));
@@ -43,7 +109,7 @@ int main(void) {
         assert(SGSingTimelineVocals(t, stamp(captured), vocal));
         captured += block;
         assert(SGSingTimelineRead(t, output, block) == block);
-        verify(consumed, block, .616f);
+        if (i >= 3) verify(consumed, block, .616f); // initial 30 ms fade into reduced vocals
         consumed += block;
     }
     assert(SGSingTimelineGetState(t) == SGSingTimelineActive);

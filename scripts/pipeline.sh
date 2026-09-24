@@ -86,11 +86,12 @@ TWEAK_DEB="$(ls -t "$ROOT"/tweak/packages/*.deb | head -1)"
 echo "    $TWEAK_DEB"
 
 FILES=("$TWEAK_DEB")
-# Optional local Core AI model, produced by harness/sing/package_model.py. No download at build or
+# Optional local voice model, produced by harness/sing/package_model.py. No download at build or
 # playback time. Without this resource Sing remains unavailable and its setting defaults off.
 if [ -n "${SING_MODEL_BUNDLE:-}" ]; then
-  [ -d "$SING_MODEL_BUNDLE/separator.aimodelc" ] && [ -f "$SING_MODEL_BUNDLE/hashes.json" ] \
-    || { echo "invalid SING_MODEL_BUNDLE: package the local AOT model first" >&2; exit 1; }
+  { [ -d "$SING_MODEL_BUNDLE/separator.aimodelc" ] || [ -d "$SING_MODEL_BUNDLE/separator.mlmodelc" ]; } \
+    && [ -f "$SING_MODEL_BUNDLE/hashes.json" ] && [ -f "$SING_MODEL_BUNDLE/Sing.plist" ] \
+    || { echo "invalid SING_MODEL_BUNDLE: package the local compiled model first" >&2; exit 1; }
   FILES+=("$SING_MODEL_BUNDLE")
 fi
 [ "$WITH_FLEX" = 1 ] && FILES+=("$FLEX_DEB")

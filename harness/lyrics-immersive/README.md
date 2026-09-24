@@ -28,6 +28,8 @@ Sing UI checks use the production capsule with a deterministic audio-controller 
 dragging the track and microphone against a competing player pan, restoring the chosen vocal level,
 cancelling preparation, restarting during drain, and keeping transition feedback visible. Slow and
 blocked preparation fixtures exercise cancellation and explanations without loading a voice model.
+The failure dialog also offers an explicit Off, including when retry is blocked, so a user can
+cancel the retained Sing intent before a thermal recovery or a track change starts work again.
 The capsule collapses after three seconds without interaction, then the existing two-second lyrics
 timer hides the player controls. Active Sing keeps a small microphone visible in immersive mode;
 its first tap opens the capsule without seeking. The tests cover that sequence and hiding the

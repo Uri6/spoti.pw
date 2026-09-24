@@ -47,6 +47,8 @@ void SGStemWorkerCancel(void *handle, int32_t unload) {
     typeof(jobs[0]) *job = handle;
     assert(!job->cancelled); job->cancelled = YES; cancels++;
 }
+UInt32 SGAudioPipelineSourceAheadFrames(UInt32 maximumFrames) { return MIN(44100, maximumFrames); }
+bool SGAudioPipelineSourceCanReadAhead(void) { return outputAvailable; }
 bool SGAudioPipelineSourceProcessorAttached(void *context) { return context == attached; }
 bool SGAudioPipelineSourceFormat(AudioStreamBasicDescription *format) {
     *format = (AudioStreamBasicDescription){44100, kAudioFormatLinearPCM,
@@ -96,13 +98,13 @@ int main(void) { @autoreleasepool {
     float pcm[882] = {0};
     // No inference result: fill the bounded input queue, then finish the worker BEFORE polling.
     for (unsigned n = 0; n < 1025 && SGSingStreamStopReason(s) == SGSingStopNone; n++)
-        assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+        assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     assert(SGSingStreamStopReason(s) == SGSingStopCapacity);
     report(0, SGStemFinished);
     assert(SGSingCurrentState() == SGSingFailed && [SGSingExplanation() containsString:@"keep up"]);
     assert(purges == 0 && cancels == 1 && !SGSingCanRetry());
     SGSingSetEnabled(YES); assert(starts == 1);
-    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile];
     assert(SGSingCanRetry() && !attached);
 
@@ -116,7 +118,7 @@ int main(void) { @autoreleasepool {
     report(1, SGStemFinished);
     assert(SGSingCurrentState() == SGSingFailed && [SGSingExplanation() containsString:@"cool down"]);
     s = stream(sg_controller.session);
-    assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile];
     assert(SGSingEnabled());
     SGSingSetEnabled(NO);
@@ -134,13 +136,11 @@ int main(void) { @autoreleasepool {
     // but the next worker must wait for both the old audio and the old worker to finish.
     SGSingSetEnabled(YES); report(4, SGStemReady);
     s = stream(sg_controller.session);
-    for (unsigned n = 0; n < 350; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    for (unsigned n = 0; n < 350; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     float *vocals = calloc(132300, sizeof(float));
     SGAudioStamp stamp = {sg_controller.generation, SGSingTrackIdentifier(player.track.URI), 0, 1, 66150};
-    assert(SGSingStreamWriteVocals(s, stamp, vocals));
-    stamp.sourceFrame += 66150;
-    assert(SGSingStreamWriteVocals(s, stamp, vocals));
-    for (unsigned n = 0; n < 2; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    for (unsigned n = 0; n < 4; n++, stamp.sourceFrame += 66150) assert(SGSingStreamWriteVocals(s, stamp, vocals));
+    for (unsigned n = 0; n < 4; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     free(vocals);
     [sg_controller reconcile]; assert(SGSingCurrentState() == SGSingActive);
     // App switching/locking retains the running worker and mix when the system grants GPU
@@ -155,7 +155,7 @@ int main(void) { @autoreleasepool {
     SGSingSetEnabled(YES); assert(SGSingCurrentState() == SGSingPreparing && starts == 5);
     report(4, SGStemFinished);
     assert(starts == 5 && SGSingCurrentState() == SGSingPreparing);
-    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile]; assert(starts == 6 && SGSingCurrentState() == SGSingPreparing);
     SGSingSetEnabled(NO); report(5, SGStemFinished);
     assert(starts == cancels && !attached && !sg_controller.session && !sg_controller.retired.count);
@@ -197,7 +197,7 @@ int main(void) { @autoreleasepool {
     for (int n = 0; n < 32; n++) assert(left[n] == .125f && right[n] == .125f);
     SGSingSetEnabled(NO); report(7, SGStemFinished);
     s = stream(sg_controller.session);
-    assert(!SGSingStreamRender(s, 441, pcm, source, NULL)); [sg_controller reconcile];
+    assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100)); [sg_controller reconcile];
     trackURI = @"spotify:track:after-off"; [sg_controller playerStateDidChange:player];
     assert(!SGSingEnabled() && starts == 8 && SGSingVocalLevel() == .7f);
     paused = YES; SGSingSetEnabled(YES); report(8, SGStemReady);
@@ -216,23 +216,30 @@ int main(void) { @autoreleasepool {
     // A render-side delay is a recoverable state, not a model failure or a new user choice.
     paused = NO; SGSingSetVocalLevel(.7f); SGSingSetEnabled(YES); report(11, SGStemReady);
     s = stream(sg_controller.session);
-    for (unsigned n = 0; n < 300; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    for (unsigned n = 0; n < 350; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     vocals = calloc(132300, sizeof(float));
     stamp = (SGAudioStamp){sg_controller.generation, SGSingTrackIdentifier(player.track.URI), 0, 1, 66150};
-    for (unsigned n = 0; n < 2; n++, stamp.sourceFrame += 66150) assert(SGSingStreamWriteVocals(s, stamp, vocals));
-    for (unsigned n = 0; n < 2; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    for (unsigned n = 0; n < 4; n++, stamp.sourceFrame += 66150) assert(SGSingStreamWriteVocals(s, stamp, vocals));
+    for (unsigned n = 0; n < 4; n++) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile]; assert(SGSingCurrentState() == SGSingActive);
-    while (SGSingStreamState(s) == SGSingTimelineActive) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    while (SGSingStreamState(s) == SGSingTimelineActive) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile];
     assert(SGSingCurrentState() == SGSingRecovering && SGSingEnabled() && cancels == 11 && starts == 12);
     assert(SGSingStreamWriteVocals(s, stamp, vocals));
-    assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
+    [sg_controller reconcile];
+    // A single late hop is not enough to leave recovery. Wait for the full reserve
+    // without spawning another worker or losing the user's selected vocal level.
+    assert(SGSingCurrentState() == SGSingRecovering && SGSingVocalLevel() == .7f && starts == 12);
+    stamp.sourceFrame += 66150;
+    assert(SGSingStreamWriteVocals(s, stamp, vocals));
+    assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile];
     assert(SGSingCurrentState() == SGSingActive && SGSingVocalLevel() == .7f && starts == 12);
-    while (SGSingStreamState(s) == SGSingTimelineActive) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    while (SGSingStreamState(s) == SGSingTimelineActive) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile]; assert(SGSingCurrentState() == SGSingRecovering);
     SGSingSetEnabled(NO); report(11, SGStemFinished);
-    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL));
+    while (SGSingStreamState(s) != SGSingTimelineIdle) assert(!SGSingStreamRender(s, 441, pcm, source, NULL, 44100));
     [sg_controller reconcile]; free(vocals);
     assert(!SGSingEnabled() && !attached && starts == cancels);
     // An actually unavailable graph has a bounded wait and still offers an explanation.
@@ -301,5 +308,25 @@ int main(void) { @autoreleasepool {
     assert(SGSingCurrentState() == SGSingReady && SGSingVocalLevel() == .7f);
     SGSingSetEnabled(NO); report(17, SGStemFinished);
     assert(!attached && !sg_controller.session && starts == cancels);
+    // The CPU backend must not request a GPU task or stop when the app backgrounds without
+    // GPU permission. Model loading, paused preparation and interruption retain their session.
+    sg_controller.usesCoreML = YES;
+    unsigned cpuPurges = purges;
+    SGSingSetEnabled(YES);
+    assert(!backgroundChanged && starts == 19);
+    SGSingSession *cpuSession = sg_controller.session;
+    [sg_controller background:nil]; report(18, SGStemReady);
+    assert(sg_controller.session == cpuSession && SGSingCurrentState() == SGSingReady);
+    assert(![sg_controller restriction] && purges == cpuPurges && !backgroundChanged);
+    paused = NO; [sg_controller reconcile];
+    assert(attached && SGSingStreamWorkerState(stream(cpuSession)) == 1);
+    [sg_controller interruption:began]; flush();
+    assert(sg_controller.session == cpuSession && SGSingStreamWorkerState(stream(cpuSession)) == 0);
+    [sg_controller interruption:ended]; flush();
+    assert(sg_controller.session == cpuSession && SGSingStreamWorkerState(stream(cpuSession)) == 1);
+    [sg_controller foreground:nil];
+    assert(!backgroundChanged && sg_controller.session == cpuSession && SGSingVocalLevel() == .7f);
+    paused = YES; [sg_controller reconcile]; SGSingSetEnabled(NO); report(18, SGStemFinished);
+    assert(!attached && !sg_controller.session && starts == cancels && purges == cpuPurges);
     puts("sing controller: thermal gating, retirement races, paused preparation, loading transitions, retained 70% and explicit Off passed");
 } return 0; }

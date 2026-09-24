@@ -41,7 +41,10 @@ static OSStatus process(void *context, UInt32 frames, AudioBufferList *data, con
     a->time = time;
     for (UInt32 done = 0; done < frames;) {
         UInt32 count = MIN(frames - done, SGSingStreamMaximumRenderFrames);
-        OSStatus error = SGSingStreamRender(a->stream, count, a->mixed, pullOriginal, a);
+        // The stream pulls at most two quanta and leaves 120 ms in Spotify's queue.
+        // Counting any further ahead adds kernel reads to every audio callback for no gain.
+        OSStatus error = SGSingStreamRender(a->stream, count, a->mixed, pullOriginal, a,
+                                           SGAudioPipelineSourceAheadFrames(count * 2 + 5292));
         for (uint32_t n = 0; n < count; n++)
             for (unsigned c = 0; c < 2; c++) ((float *)data->mBuffers[c].mData)[done+n] = a->mixed[n*2+c];
         if (error) return error;
@@ -72,7 +75,7 @@ bool SGSingAudioAttach(SGSingAudio *a) {
     if (!a || a->epoch != atomic_load(&epoch) || !SGAudioPipelineSourceFormat(&format) || format.mSampleRate != 44100 || format.mChannelsPerFrame != 2 ||
         format.mFormatID != kAudioFormatLinearPCM || format.mBitsPerChannel != 32 || format.mBytesPerFrame != sizeof(float) ||
         !(format.mFormatFlags & kAudioFormatFlagIsFloat) || !(format.mFormatFlags & kAudioFormatFlagIsNonInterleaved)) return false;
-    return SGAudioPipelineSetSourceProcessor(process, a);
+    return SGAudioPipelineSourceCanReadAhead() && SGAudioPipelineSetSourceProcessor(process, a);
 }
 void SGSingAudioDetach(SGSingAudio *a) {
     if (a && SGAudioPipelineClearSourceProcessor(a)) {

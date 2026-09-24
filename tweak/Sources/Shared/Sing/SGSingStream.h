@@ -26,9 +26,9 @@ SGSingStopReason SGSingStreamStopReason(const SGSingStream *stream);
 int32_t SGSingStreamSourceError(const SGSingStream *stream);
 int32_t SGSingStreamWorkerState(const SGSingStream *stream); // -1 stopped, 0 paused, 1 reading
 
-// Render endpoint. Never pulls source while paused or draining. Preparation emits explicit silence.
+// Render endpoint. Never pulls source while paused or draining. Preparation emits aligned original audio; only verified available frames permit extra pulls.
 int32_t SGSingStreamRender(SGSingStream *stream, uint32_t frames, float *stereo,
-                          SGSingSourceRead source, void *context);
+                          SGSingSourceRead source, void *context, uint32_t available);
 // Worker endpoint. Input holds 1024 stereo frames; output holds one completed hop.
 bool SGSingStreamReadInput(SGSingStream *stream, SGAudioStamp *stamp, float *stereo);
 bool SGSingStreamWriteVocals(SGSingStream *stream, SGAudioStamp stamp, const float *stereo);

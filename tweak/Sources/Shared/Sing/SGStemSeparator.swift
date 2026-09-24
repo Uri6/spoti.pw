@@ -1,10 +1,11 @@
-// Local-only Mel Band RoFormer adapter. The graph includes STFT/iSTFT; this host frames PCM and
-// overlap-adds reconstructed frames. No downloads and no calls from RemoteIO.
+// Local-only Mel Band RoFormer adapter. Core ML uses worker-side FFTs and CPU background
+// inference; Core AI includes its transforms. No downloads or calls from RemoteIO.
 // Graph contract/provenance: harness/sing/README.md and harness/sing/model.json.
 import Foundation
 import CryptoKit
 #if canImport(CoreAI)
 import CoreAI
+#endif
 
 @available(iOS 27.0, macOS 27.0, *)
 enum SGStemError: Error {
@@ -14,8 +15,11 @@ enum SGStemError: Error {
 @available(iOS 27.0, macOS 27.0, *)
 actor SGStemSeparator {
     static let sampleRate = 44_100
-    private let function: InferenceFunction
-    private let input: NDArrayDescriptor
+    #if canImport(CoreAI)
+    private let function: InferenceFunction?
+    private let input: NDArrayDescriptor?
+    #endif
+    private let coreML: SGStemCoreMLSeparator?
     let chunkSamples: Int
     private let frameCount: Int
     private let normalization: [Float]
@@ -24,9 +28,9 @@ actor SGStemSeparator {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private let fftSize = 2048, hop = 441, pad = 1024
 
-    // Verify the graph's payload before Core AI sees it. Hashing and model specialization happen
+    // Verify the graph's payload before its runtime sees it. Hashing and model specialization happen
     // on this actor, outside playback-critical paths. An AOT profile must verify all its payloads.
-    init(modelURL: URL, payloadHashes: [String: String]) async throws {
+    init(modelURL: URL, payloadHashes: [String: String], preferForegroundGPU: Bool = false) async throws {
         guard !payloadHashes.isEmpty else { throw SGStemError.invalidModel }
         for (relative, expected) in payloadHashes {
             guard !relative.hasPrefix("/"), !relative.split(separator: "/").contains("..") else {
@@ -41,6 +45,22 @@ actor SGStemSeparator {
             guard actual == expected else { throw SGStemError.hashMismatch }
         }
         try Task.checkCancellation()
+        if modelURL.pathExtension == "mlmodelc" {
+            let coreML = try await SGStemCoreMLSeparator(modelURL: modelURL, preferForegroundGPU: preferForegroundGPU)
+            // Core ML's first prediction can allocate/specialize beyond model loading. Pay
+            // that cost before announcing Ready, while Spotify still plays its original audio.
+            // The warm model store shares this work; seeks do not repeat it.
+            try await coreML.warmUp()
+            try Task.checkCancellation()
+            self.coreML = coreML
+            #if canImport(CoreAI)
+            self.function = nil; self.input = nil
+            #endif
+            self.frameCount = 201; self.chunkSamples = 88200; self.normalization = []
+            return
+        }
+        self.coreML = nil
+        #if canImport(CoreAI)
         let model = try await AIModel(contentsOf: modelURL, options: SpecializationOptions(preferredComputeUnitKind: .gpu))
         try Task.checkCancellation()
         guard let descriptor = model.functionDescriptor(for: "main"), descriptor.stateNames.isEmpty,
@@ -63,6 +83,9 @@ actor SGStemSeparator {
             }
         }
         self.normalization = weights
+        #else
+        throw SGStemError.invalidModel
+        #endif
     }
 
     func invalidate() { generation &+= 1 }
@@ -87,6 +110,14 @@ actor SGStemSeparator {
         defer { release() }
         let ticket = generation
         try Task.checkCancellation()
+        if let coreML {
+            let result = try await coreML.vocals(for: pcm)
+            try Task.checkCancellation()
+            guard ticket == generation else { throw SGStemError.cancelled }
+            return result
+        }
+        #if canImport(CoreAI)
+        guard let input, let function else { throw SGStemError.invalidModel }
         let count = 2 * frameCount * fftSize
         var framed = [Float](repeating: 0, count: count)
         for channel in 0..<2 {
@@ -137,6 +168,8 @@ actor SGStemSeparator {
             }
         }
         return vocals
+        #else
+        throw SGStemError.invalidModel
+        #endif
     }
 }
-#endif
