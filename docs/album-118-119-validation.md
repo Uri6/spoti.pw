@@ -43,8 +43,15 @@ No new animation is introduced; the existing scrolling and transitions remain Sp
 - All 490 simulator checks passed again: 172 redesign, 146 native and 172 late-header checks.
   Inspected the settled simulator screen: the artist face remains visible, redundant row credits
   are hidden, explicit badges are inline and the uncredited guest retains its subtitle.
-- The real-iPhone checks below describe the original branch. This beta-based build has not been
-  installed or revalidated on the physical phone in this migration.
+- Packaged and signed the beta-based build at `20dab49` from the supplied Spotify 9.1.78 IPA,
+  then installed it on the iPhone 17 Pro running iOS 27.2. The installed dylib UUID matches the
+  build output. The app launched successfully with the existing app identifier and data container.
+- A physical-device XCTest passed and captured Hurry Up Tomorrow. The screenshot confirms
+  beta's album header and artist facepile, hidden redundant artist lines, and explicit
+  badges inline beside the track titles.
+- The broader physical-device checks below describe the original branch. Co-artist handling,
+  discovery layout and background reuse passed the current simulator checks. The broader device
+  scenarios were not rerun on the phone during this beta installation check.
 
 ## Original-branch verification, 2026-09-24
 
